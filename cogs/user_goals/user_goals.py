@@ -5,7 +5,7 @@ import asyncio
 import discord
 from discord.ext import commands
 
-from . import goal_database as database
+from . import goal_db_methods as database
 from . import goal_utilities as utils
 
 # Cogs are modules that can be added to the bot

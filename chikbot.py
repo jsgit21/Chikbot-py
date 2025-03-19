@@ -8,6 +8,8 @@ import random
 
 from dotenv import load_dotenv
 
+import database.db_methods as database
+
 load_dotenv()
 TOKEN = os.getenv('TOKEN')
 DEV_CHANNEL_ID = int(os.getenv('PERSONAL_DEV_CHANNEL'))
@@ -34,34 +36,6 @@ def get_random_emoji():
     emoji = emoji_list[pick]
     return f'<{emoji.name}:{emoji.id}>'
 
-async def register_author(author):
-    # Blocking operation offloaded to a separate thread
-    await asyncio.to_thread(register_author_thread, author)
-
-def register_author_thread(author):
-    cursor = db.cursor()
-
-    query = """
-        insert ignore into Discord.user (user_id, username)
-        values (%s, %s)
-    """
-    values = (
-        author.id,
-        author.name,
-    )
-    cursor.execute(query, values)
-
-    display_name = author.nick if author.nick else author.global_name
-
-    query = """
-        insert ignore into Discord.user_alias (user_id, alias)
-        values (%s, %s)
-    """
-    values = (
-        author.id,
-        display_name,
-    )
-    cursor.execute(query, values)
 
 async def random_emoji_reaction(message, max):
     send_value = random.randint(0,max)
@@ -88,7 +62,7 @@ async def on_message(message):
     if message.webhook_id:
         return
 
-    await register_author(message.author)
+    await asyncio.to_thread(database.register_user, chikbot.db, message.author)
     await random_emoji_reaction(message, 50)
 
 
