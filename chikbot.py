@@ -31,15 +31,15 @@ chikbot.load_extension('cogs.user_goals.user_goals')
 
 def get_random_emoji():
     emoji_list = chikbot.emojis
-    max_rand = len(emoji_list)-1
+    max_rand = len(emoji_list) - 1
     pick = random.randint(0, max_rand)
     emoji = emoji_list[pick]
     return f'<{emoji.name}:{emoji.id}>'
 
 
 async def random_emoji_reaction(message, max):
-    send_value = random.randint(0,max)
-    if send_value > max-2:
+    send_value = random.randint(0, max)
+    if send_value > max - 2:
         reaction = get_random_emoji()
         await message.add_reaction(reaction)
 
