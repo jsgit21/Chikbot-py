@@ -14,11 +14,7 @@ load_dotenv()
 TOKEN = os.getenv('TOKEN')
 DEV_CHANNEL_ID = int(os.getenv('PERSONAL_DEV_CHANNEL'))
 
-db = pymysql.connect(
-    database='Discord',
-    read_default_file='~/.my.cnf',
-    autocommit=True,
-)
+db = database.create_connection()
 
 intents = discord.Intents.default()
 intents.message_content = True
