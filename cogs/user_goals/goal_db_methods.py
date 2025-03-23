@@ -12,7 +12,7 @@ def add_goal(db, user_id, goal, parent_goal_number):
         parent_id = parent_row['id']
 
     query = """
-        insert into Discord.user_goal (user_id, goal, parent_id)
+        insert into user_goal (user_id, goal, parent_id)
         values(%s, %s, %s)
     """
     values = (
@@ -35,7 +35,7 @@ def get_goals(db, user_id, goal_number=None):
                completed,
                cast(insert_date as date) as insert_date,
                cast(completed_date as date) as completed_date
-          from Discord.ordered_goals
+          from ordered_goals
          where user_id = %s
     """
     if goal_number:
@@ -53,8 +53,8 @@ def complete_goal(db, user_id, goal_number):
     # remove completion
 
     query = """
-        update Discord.user_goal u
-          join Discord.ordered_goals o
+        update user_goal u
+          join ordered_goals o
             on u.id = o.id
            set u.completed = not u.completed,
                u.completed_date = now()
@@ -79,8 +79,8 @@ def delete_goal(db, user_id, goal_number):
 
     query = """
         delete u
-          from Discord.user_goal u
-          join Discord.ordered_goals o
+          from user_goal u
+          join ordered_goals o
             on u.id = o.id
          where u.user_id = %s
            and o.rnk = %s
@@ -101,8 +101,8 @@ def edit_goal(db, user_id, goal_number, goal):
         return
 
     query = """
-        update Discord.user_goal u
-          join Discord.ordered_goals o
+        update user_goal u
+          join ordered_goals o
             on u.id = o.id
            set u.goal = %s
          where u.user_id = %s
