@@ -8,7 +8,8 @@ def create_connection(database='Discord'):
     )
     return connection
 
-def register_user(db, author):
+def register_user(author, testdb=None):
+    db = testdb if testdb else create_connection()
     cursor = db.cursor()
     display_name = author.nick if author.nick else author.global_name
 

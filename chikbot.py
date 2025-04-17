@@ -14,13 +14,10 @@ load_dotenv()
 TOKEN = os.getenv('TOKEN')
 DEV_CHANNEL_ID = int(os.getenv('PERSONAL_DEV_CHANNEL'))
 
-db = database.create_connection()
-
 intents = discord.Intents.default()
 intents.message_content = True
 
 chikbot = discord.Bot()
-chikbot.db = db
 
 # Cogs
 chikbot.load_extension('cogs.user_goals.user_goals')
@@ -58,7 +55,7 @@ async def on_message(message):
     if message.webhook_id:
         return
 
-    await asyncio.to_thread(database.register_user, chikbot.db, message.author)
+    await asyncio.to_thread(database.register_user, message.author)
     await random_emoji_reaction(message, 50)
 
 

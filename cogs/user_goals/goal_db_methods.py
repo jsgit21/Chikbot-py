@@ -1,11 +1,13 @@
 import pymysql
+import database.db_methods as database
 
-def add_goal(db, user_id, goal, parent_goal_number):
+def add_goal(user_id, goal, parent_goal_number, testdb=None):
+    db = testdb if testdb else database.create_connection()
     cursor = db.cursor()
 
     parent_id = None
     if parent_goal_number:
-        parent_row = get_goals(db, user_id, parent_goal_number)
+        parent_row = get_goals(user_id, parent_goal_number)
 
         if parent_row is None:
             return
@@ -24,7 +26,8 @@ def add_goal(db, user_id, goal, parent_goal_number):
     return cursor.lastrowid
 
 
-def get_goals(db, user_id, goal_number=None):
+def get_goals(user_id, goal_number=None, testdb=None):
+    db = testdb if testdb else database.create_connection()
     cursor = db.cursor(pymysql.cursors.DictCursor)
 
     query = """
@@ -46,7 +49,8 @@ def get_goals(db, user_id, goal_number=None):
     cursor.execute(query, (user_id))
     return cursor.fetchall()
 
-def complete_goal(db, user_id, goal_number):
+def complete_goal(user_id, goal_number, testdb=None):
+    db = testdb if testdb else database.create_connection()
     cursor = db.cursor()
 
     # Flip the completed value, so this function can be used to add or
@@ -67,13 +71,14 @@ def complete_goal(db, user_id, goal_number):
     )
     cursor.execute(query, values)
 
-    row = get_goals(db, user_id, goal_number)
+    row = get_goals(user_id, goal_number)
     return row
 
-def delete_goal(db, user_id, goal_number):
+def delete_goal(user_id, goal_number, testdb=None):
+    db = testdb if testdb else database.create_connection()
     cursor = db.cursor()
 
-    row = get_goals(db, user_id, goal_number)
+    row = get_goals(user_id, goal_number)
     if row is None:
         return
 
@@ -93,10 +98,11 @@ def delete_goal(db, user_id, goal_number):
 
     return row
 
-def edit_goal(db, user_id, goal_number, goal):
+def edit_goal(user_id, goal_number, goal, testdb=None):
+    db = testdb if testdb else database.create_connection()
     cursor = db.cursor()
 
-    row = get_goals(db, user_id, goal_number)
+    row = get_goals(user_id, goal_number)
     if row is None:
         return
 

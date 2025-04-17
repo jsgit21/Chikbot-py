@@ -37,7 +37,7 @@ def test_author():
 
 def test_register_user(test_db, setup_user_tables, test_author):
     cursor = test_db.cursor(pymysql.cursors.DictCursor)
-    db_methods.register_user(test_db, test_author)
+    db_methods.register_user(test_author, testdb=test_db)
 
     cursor.execute(f'select * from {TEST_DATABASE}.user where user_id = 1')
     result = cursor.fetchone()
@@ -63,7 +63,7 @@ def setup_goal_tables(test_db):
     def add_sub_goals(num_goals):
         for i in range(1, num_goals):
             goal = f'{i}'
-            goal_methods.add_goal(test_db, author.id, goal, num_goals)
+            goal_methods.add_goal(author.id, goal, num_goals, testdb=test_db)
 
     # I use the create table statement here so that I can capture the 
     # ON DELETE CASCADE property
@@ -81,7 +81,7 @@ def setup_goal_tables(test_db):
 
     for i in range(1, 6):
         goal = f'{i}'
-        goal_methods.add_goal(test_db, author.id, goal, parent_goal_number=None)
+        goal_methods.add_goal(author.id, goal, parent_goal_number=None, testdb=test_db)
 
     # Separate loop because I want subgoals to be at the bottom of user_goals
     for i in range(1, 6):
