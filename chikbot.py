@@ -21,6 +21,7 @@ chikbot = discord.Bot()
 
 # Cogs
 chikbot.load_extension('cogs.user_goals.user_goals')
+chikbot.load_extension('cogs.wise_old_man.wise_old_man')
 
 def get_random_emoji():
     emoji_list = chikbot.emojis
