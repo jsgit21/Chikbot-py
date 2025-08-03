@@ -6,10 +6,8 @@ load_dotenv()
 
 endpoint = os.getenv('WOM_ENDPOINT')
 groupid = os.getenv('WOM_GROUPID')
-
-headers = {
-   'user-agent': os.getenv('WOM_USER_AGENT')
-}
+verification_code = os.getenv('WOM_GROUP_VERIFICATION_CODE')
+headers = {'user-agent': os.getenv('WOM_USER_AGENT')}
 
 def rank_emoji(rank):
     # Goes off the current assumption that the clan ranks in discord
@@ -116,6 +114,15 @@ def get_user_roles():
         parsed_data[id] = player_dict
 
     return parsed_data
+
+def bulk_update_outdated_users():
+    update_endpoint = f'/{groupid}/update-all'
+    json_data = {'verificationCode': verification_code}
+    url = endpoint + update_endpoint
+
+    response = requests.post(url, headers=headers, json=json_data)
+
+    return response.json()['message']
 
 def get_misranked_users():
     # Returns a list of users who need rank updates

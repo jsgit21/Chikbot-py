@@ -3,18 +3,26 @@ import datetime
 import discord
 from discord.ext import tasks, commands
 
-from .rolecheck import get_misranked_users
+from .rolecheck import get_misranked_users, bulk_update_outdated_users
 
 class Wise_Old_Man(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
         self.MOD_CHANNEL_ID = int(os.getenv('MODERATOR_CHANNEL'))
+        self.DEV_CHANNEL_ID = int(os.getenv('PERSONAL_DEV_CHANNEL'))
         self.rolecheck.start()
+        self.update_wom_group.start()
+
 
     @property
-    def channel(self):
+    def mod_channel(self):
         return self.bot.get_channel(self.MOD_CHANNEL_ID)
+
+
+    @property
+    def dev_channel(self):
+        return self.bot.get_channel(self.DEV_CHANNEL_ID)
 
 
     def format_users(self, users):
@@ -36,6 +44,17 @@ class Wise_Old_Man(commands.Cog):
         return '\n'.join(output_list)
 
 
+    @tasks.loop(time=datetime.time(hour=13, minute=00))
+    async def update_wom_group(self):
+        message = bulk_update_outdated_users()
+        await self.dev_channel.send(message)
+
+
+    @update_wom_group.before_loop
+    async def before_update_wom_group(self):
+        await self.bot.wait_until_ready()
+
+
     @tasks.loop(time=datetime.time(hour=14, minute=00))
     async def rolecheck(self):
         update_users = get_misranked_users()
@@ -46,12 +65,12 @@ class Wise_Old_Man(commands.Cog):
         # Also need to fix the server time, it is 4 hours ahead
 
         if len(update_users) > 0:
-            channel = self.channel
             output_message = self.format_users(update_users)
 
-            await channel.send(output_message)
-            note = '-# The WOM group has to be re-syncd once ranks are changed'
-            await channel.send(note)
+            await self.mod_channel.send(output_message)
+            note = '-# The WOM group has to be re-syncd once ranks are changed. (Ask Joe or Nick)'
+            await mod_channel.send(note)
+
 
     @rolecheck.before_loop
     async def before_rolecheck(self):
@@ -60,3 +79,4 @@ class Wise_Old_Man(commands.Cog):
 
 def setup(bot):
     bot.add_cog(Wise_Old_Man(bot))
+
