@@ -95,7 +95,7 @@ def append_total_levels(group):
         player_dict['total'] = data['level']
         #player_dict['lastChangedAt'] = player['lastChangedAt']
 
-def get_user_roles():
+def get_user_roles(rank=None):
     group_details_endpoint = f'/{groupid}'
     url = endpoint + group_details_endpoint
     response = requests.get(url, headers)
@@ -112,6 +112,13 @@ def get_user_roles():
         player_dict['username'] = player['username']
         player_dict['current_rank'] = player_obj['role']
         parsed_data[id] = player_dict
+
+    if rank:
+        users_with_rank = {}
+        for user_id, user in parsed_data.items():
+            if user['current_rank'] == rank:
+                users_with_rank[user_id] = user
+        return users_with_rank
 
     return parsed_data
 
@@ -147,7 +154,7 @@ def get_misranked_users():
     return misranked_users
 
 if __name__ == '__main__':
-    for user in get_misranked_users():
+    for user in get_user_roles(rank='member'):
         print(user)
 
 

@@ -3,7 +3,7 @@ import datetime
 import discord
 from discord.ext import tasks, commands
 
-from .rolecheck import get_misranked_users, bulk_update_outdated_users
+from .rolecheck import get_misranked_users, bulk_update_outdated_users, get_user_roles
 
 class Wise_Old_Man(commands.Cog):
 
@@ -25,8 +25,10 @@ class Wise_Old_Man(commands.Cog):
         return self.bot.get_channel(self.DEV_CHANNEL_ID)
 
 
-    def format_users(self, users):
-        output_list = ['__Ranks need updates__:']
+    def format_output(self, users):
+        # Returns a list of messages to be sent
+        final_output = []
+        message_buffer = ['__Ranks need updates__:']
         for user in users:
             username = user['username']
             curr_role = user['current_rank']
@@ -39,9 +41,34 @@ class Wise_Old_Man(commands.Cog):
             curr_emoji = discord.utils.get(emoji_list, name=curr_emoji)
             new_emoji = discord.utils.get(emoji_list, name=new_emoji)
 
-            output_list.append(f'{curr_emoji} `{curr_role:<11}` -> {new_emoji} `{new_role:<11}`  [`{total:>4}`]  **{username}**')
+            msg = f'{curr_emoji} `{curr_role:<11}` -> {new_emoji} `{new_role:<11}`  [`{total:>4}`]  **{username}**'
 
-        return '\n'.join(output_list)
+            # Check the length of current message
+            # Determined if we will reach the 2000 character limit when adding
+            # the next message
+            curr_length = len('\n'.join(message_buffer))
+            added_newlines = len(message_buffer) - 1
+            new_length = curr_length + len(msg) + added_newlines
+
+            if new_length > 2000:
+                final_output.append('\n'.join(message_buffer))
+                # Clear out message buffer to start a new message
+                message_buffer = []
+
+            message_buffer.append(msg)
+
+        # Catch any messages left in the buffer
+        if len(message_buffer) > 0:
+            final_output.append('\n'.join(message_buffer))
+
+        return final_output
+
+
+    def get_guests(self):
+        guests = get_user_roles(rank='member')
+
+        guest_names = [guest['username'] for user_id, guest in guests.items()]
+        return ', '.join(guest_names)
 
 
     @tasks.loop(time=datetime.time(hour=13, minute=00))
@@ -59,17 +86,18 @@ class Wise_Old_Man(commands.Cog):
     async def rolecheck(self):
         update_users = get_misranked_users()
 
-        # TODO
-        # This needs to be changed to paginate, in the case of many users
-        # it can easily hit the message limit
-        # Also need to fix the server time, it is 4 hours ahead
-
         if len(update_users) > 0:
-            output_message = self.format_users(update_users)
+            output_message_list = self.format_output(update_users)
 
-            await self.mod_channel.send(output_message)
+            for output_message in output_message_list:
+                await self.mod_channel.send(output_message)
+
             note = '-# The WOM group has to be re-syncd once ranks are changed. (Ask Joe or Nick)'
-            await mod_channel.send(note)
+            await self.mod_channel.send(note)
+
+            # Provide a list of guests in the group
+            guest_list = self.get_guests()
+            await self.mod_channel.send(f'-# Guests for WOM sync: {guest_list}')
 
 
     @rolecheck.before_loop
