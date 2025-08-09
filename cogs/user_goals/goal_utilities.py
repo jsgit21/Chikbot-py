@@ -1,10 +1,13 @@
 from datetime import date
 
-def format_goals(goals, verbose=False, sub_indent=True):
+def format_goals(goals, verbose=False, sub_indent=True, row_numbers=False):
 
     goal_list = []
     for goal in goals:
-        goal_row = f'**{goal["rnk"]}**: {goal["goal"]}'
+        goal_row = f'{goal["goal"]}'
+
+        if row_numbers:
+            goal_row = f'**{goal["rnk"]}**: {goal_row}'
 
         if goal['completed']:
             goal_row = f'~~{goal_row}~~'

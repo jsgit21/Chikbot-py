@@ -7,7 +7,7 @@ def add_goal(user_id, goal, parent_goal_number, testdb=None):
 
     parent_id = None
     if parent_goal_number:
-        parent_row = get_goals(user_id, parent_goal_number)
+        parent_row = get_goals(user_id, goal_number=parent_goal_number, type='incomplete')
 
         if parent_row is None:
             return
@@ -25,10 +25,17 @@ def add_goal(user_id, goal, parent_goal_number, testdb=None):
     cursor.execute(query, values)
     return cursor.lastrowid
 
-
-def get_goals(user_id, goal_number=None, testdb=None):
+def get_goals(user_id, goal_number=None, type=None, testdb=None):
     db = testdb if testdb else database.create_connection()
     cursor = db.cursor(pymysql.cursors.DictCursor)
+
+    if type not in [None, 'complete', 'incomplete']:
+        raise Exception(f'Incorrect type: {type}')
+
+    goals_view = 'ordered_goals'
+    if type is not None:
+        goals_view = f'ordered_{type}_goals'
+
 
     query = """
         select id,
@@ -38,9 +45,9 @@ def get_goals(user_id, goal_number=None, testdb=None):
                completed,
                cast(insert_date as date) as insert_date,
                cast(completed_date as date) as completed_date
-          from ordered_goals
+          from {view}
          where user_id = %s
-    """
+    """.format(view=goals_view)
     if goal_number:
         query += f'and rnk = %s'
         cursor.execute(query, (user_id, goal_number))
@@ -58,7 +65,7 @@ def complete_goal(user_id, goal_number, testdb=None):
 
     query = """
         update user_goal u
-          join ordered_goals o
+          join ordered_incomplete_goals o
             on u.id = o.id
            set u.completed = not u.completed,
                u.completed_date = now()
@@ -78,14 +85,14 @@ def delete_goal(user_id, goal_number, testdb=None):
     db = testdb if testdb else database.create_connection()
     cursor = db.cursor()
 
-    row = get_goals(user_id, goal_number)
+    row = get_goals(user_id, goal_number=goal_number, type='incomplete')
     if row is None:
         return
 
     query = """
         delete u
           from user_goal u
-          join ordered_goals o
+          join ordered_incomplete_goals o
             on u.id = o.id
          where u.user_id = %s
            and o.rnk = %s
@@ -102,13 +109,13 @@ def edit_goal(user_id, goal_number, goal, testdb=None):
     db = testdb if testdb else database.create_connection()
     cursor = db.cursor()
 
-    row = get_goals(user_id, goal_number)
+    row = get_goals(user_id, goal_number=goal_number, type='incomplete')
     if row is None:
         return
 
     query = """
         update user_goal u
-          join ordered_goals o
+          join ordered_incomplete_goals o
             on u.id = o.id
            set u.goal = %s
          where u.user_id = %s

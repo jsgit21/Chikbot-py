@@ -31,6 +31,7 @@ class User_Goals(commands.Cog):
             '- __Viewing your goals__:\n'
             '  - `/goals view `\n'
             '  - `/goals view_detailed `\n'
+            '  - `/goals view_completed `\n'
             '- __Modifying your goals__:\n'
             '  - `/goals edit [goal_number] [goal]`\n'
             '  - `/goals complete [goal_number]`\n'
@@ -59,7 +60,15 @@ class User_Goals(commands.Cog):
     @goals.command(description="View goals")
     async def view(self, ctx):
         user_id = ctx.author.id
-        goals = await asyncio.to_thread(database.get_goals, user_id)
+        goals = await asyncio.to_thread(database.get_goals, user_id, type='incomplete')
+
+        goals_view = utils.format_goals(goals, row_numbers=True)
+        await ctx.respond(goals_view)
+
+    @goals.command(description="View completed goals")
+    async def view_completed(self, ctx):
+        user_id = ctx.author.id
+        goals = await asyncio.to_thread(database.get_goals, user_id, type='complete')
 
         goals_view = utils.format_goals(goals)
         await ctx.respond(goals_view)
@@ -77,7 +86,7 @@ class User_Goals(commands.Cog):
     @goals.command(description="Get details for a specific goal")
     async def detail(self, ctx, goal_number: int):
         user_id = ctx.author.id
-        goal = await asyncio.to_thread(database.get_goals, user_id, goal_number)
+        goal = await asyncio.to_thread(database.get_goals, user_id, goal_number=goal_number)
 
         if goal is None:
             await ctx.respond(f'Unable to get details for goal number: **{goal_number}**')
@@ -136,7 +145,7 @@ class User_Goals(commands.Cog):
     async def view_goals(self, ctx, member):
         user_id = member.id
         user_name = member.nick or member.global_name or member.name
-        goals = await asyncio.to_thread(database.get_goals, user_id)
+        goals = await asyncio.to_thread(database.get_goals, user_id, type='incomplete')
 
         if len(goals) == 0:
             await ctx.respond(f'__**{user_name}**__ has no goals set.')
@@ -149,13 +158,29 @@ class User_Goals(commands.Cog):
 
 
     @discord.user_command()
+    async def view_goals_completed(self, ctx, member):
+        user_id = member.id
+        user_name = member.nick or member.global_name or member.name
+        goals = await asyncio.to_thread(database.get_goals, user_id, type='completed')
+
+        if len(goals) == 0:
+            await ctx.respond(f'__**{user_name}**__ has no completed goals.')
+            return
+
+        response = f'__**Goals for {user_name}**__:\n'
+        goals_view = utils.format_goals(goals, verbose=True)
+        response += goals_view
+        await ctx.respond(response)
+
+
+    @discord.user_command()
     async def view_goals_detailed(self, ctx, member):
         user_id = member.id
         user_name = member.nick or member.global_name or member.name
         goals = await asyncio.to_thread(database.get_goals, user_id)
 
         if len(goals) == 0:
-            await ctx.respond(f'__**{user_name}**__ has no goals set.')
+            await ctx.respond(f'__**{user_name}**__ has no goals.')
             return
 
         response = f'__**Goals for {user_name}**__:\n'
