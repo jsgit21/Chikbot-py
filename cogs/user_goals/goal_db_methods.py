@@ -60,14 +60,14 @@ def complete_goal(user_id, goal_number, testdb=None):
     db = testdb if testdb else database.create_connection()
     cursor = db.cursor()
 
-    # Flip the completed value, so this function can be used to add or
-    # remove completion
+    # Get the goal info before deleting
+    row = get_goals(user_id, goal_number, type='incomplete')
 
     query = """
         update user_goal u
           join ordered_incomplete_goals o
             on u.id = o.id
-           set u.completed = not u.completed,
+           set u.completed = True,
                u.completed_date = now()
          where u.user_id = %s
            and o.rnk = %s
@@ -78,7 +78,6 @@ def complete_goal(user_id, goal_number, testdb=None):
     )
     cursor.execute(query, values)
 
-    row = get_goals(user_id, goal_number)
     return row
 
 def delete_goal(user_id, goal_number, testdb=None):

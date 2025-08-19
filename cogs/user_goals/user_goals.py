@@ -103,12 +103,8 @@ class User_Goals(commands.Cog):
 
         if goal_row is None:
             await ctx.respond(f'Unable to complete goal number: **{goal_number}**')
-            return
-
-        if goal_row['completed']:
-            await ctx.respond(f'🎉 **Goal completed** - {goal_row["goal"]}')
         else:
-            await ctx.respond(f'**Removed goal completion** - {goal_row["goal"]}')
+            await ctx.respond(f'🎉 **Goal completed** - {goal_row["goal"]}')
 
 
     @goals.command(description="Delete goal")
