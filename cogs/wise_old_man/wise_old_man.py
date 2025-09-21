@@ -4,6 +4,7 @@ import discord
 from discord.ext import tasks, commands
 
 from .rolecheck import get_misranked_users, bulk_update_outdated_users, get_user_roles
+import database.db_methods as database
 
 class Wise_Old_Man(commands.Cog):
 
@@ -13,6 +14,9 @@ class Wise_Old_Man(commands.Cog):
         self.DEV_CHANNEL_ID = int(os.getenv('PERSONAL_DEV_CHANNEL'))
         self.rolecheck.start()
         self.update_wom_group.start()
+
+        print('Syncing local wom group!')
+        self.sync_wom_group_to_db()
 
 
     @property
@@ -70,9 +74,18 @@ class Wise_Old_Man(commands.Cog):
         guest_names = [guest['username'] for user_id, guest in guests.items()]
         return ', '.join(guest_names)
 
+    def sync_wom_group_to_db(self):
+        all_members = get_user_roles()
+        all_members = [
+            [user_id, member['username'], member['current_rank']]
+            for user_id, member in all_members.items()
+        ]
+        database.update_local_wom_group(all_members)
+
 
     @tasks.loop(time=datetime.time(hour=13, minute=00))
     async def update_wom_group(self):
+        self.sync_wom_group_to_db()
         message = bulk_update_outdated_users()
         await self.dev_channel.send(message)
 
@@ -103,6 +116,7 @@ class Wise_Old_Man(commands.Cog):
     @rolecheck.before_loop
     async def before_rolecheck(self):
         await self.bot.wait_until_ready()
+
 
 
 def setup(bot):

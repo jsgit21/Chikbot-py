@@ -7,17 +7,17 @@ import pymysql
 import random
 
 from dotenv import load_dotenv
-
 import database.db_methods as database
 
 load_dotenv()
 TOKEN = os.getenv('TOKEN')
 DEV_CHANNEL_ID = int(os.getenv('PERSONAL_DEV_CHANNEL'))
+WEBHOOK_GRAVEYARD = int(os.getenv('WEBHOOK_GRAVEYARD'))
 
 intents = discord.Intents.default()
 intents.message_content = True
 
-chikbot = discord.Bot()
+chikbot = discord.Bot(intents=intents)
 
 # Cogs
 chikbot.load_extension('cogs.user_goals.user_goals')
@@ -50,10 +50,32 @@ async def on_ready():
 @chikbot.event
 async def on_message(message):
 
-    if message.author.bot:
+    # Process messages that were sent via webhook
+    if message.webhook_id:
+        channel = chikbot.get_channel(WEBHOOK_GRAVEYARD)
+
+        # Dink messages should contain embeds
+        if not message.embeds:
+            output = (
+                f'Discord User: `{message.author}`\n'
+                f'Global Name: `{message.author.global_name}`\n\n'
+                f'{message.content}\n\n'
+                f'-# {message}'
+            )
+            await channel.send(content=output)
+            await message.delete()
+            return
+
+        # Ensure the rsn coming through dink is part of our group
+        rsn = message.embeds[0].author.name
+        group_member = database.check_local_wom(rsn)
+
+        if not group_member:
+            await channel.send(embed=message.embeds[0])
+            await message.delete()
         return
 
-    if message.webhook_id:
+    if message.author.bot:
         return
 
     await asyncio.to_thread(database.register_user, message.author)

@@ -154,7 +154,7 @@ def get_misranked_users():
     return misranked_users
 
 if __name__ == '__main__':
-    for user in get_user_roles(rank='member'):
-        print(user)
+    for user, values in get_user_roles().items():
+        print(values['username'])
 
 
