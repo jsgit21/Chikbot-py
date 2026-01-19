@@ -23,7 +23,7 @@ def clan_ranks(requirement_only=False, titles_only=False):
         'feeder': 0,
         'sapphire': 1000,
         'emerald': 1500,
-        'red_topaz': 1750,
+        'ruby': 1750,
         'diamond': 2000,
         'dragonstone': 2100,
         'onyx': 2200,
@@ -34,7 +34,8 @@ def clan_ranks(requirement_only=False, titles_only=False):
     # Retired ranks are important to include for the transition
     # period of switching ranks over to a new system
     retired_ranks = {
-        'jade': 1000
+        'jade': 1000,
+        'red_topaz': 1750,
     }
 
 
