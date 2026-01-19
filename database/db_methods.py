@@ -1,10 +1,11 @@
 import pymysql
 
-def create_connection(database='Discord'):
+def create_connection(database='Discord', cursor=pymysql.cursors.Cursor):
     connection = pymysql.connect(
         database=database,
         read_default_file='~/.my.cnf',
         autocommit=True,
+        cursorclass=cursor
     )
     return connection
 
@@ -33,10 +34,17 @@ def register_user(author, testdb=None):
     )
     cursor.execute(query, values)
 
-# Save the list of wom group to database for reference
+# Update local wom group and return changes
 def update_local_wom_group(group):
-    db = create_connection()
+    db = create_connection(cursor=pymysql.cursors.DictCursor)
     cursor = db.cursor()
+
+    changes = {
+        'total_changes': 0,
+        'updates': None,
+        'inserts': None,
+        'deletes': None,
+    }
 
     query = """
         create temporary table wom_group_tmp like wom_group;
@@ -45,29 +53,81 @@ def update_local_wom_group(group):
 
     query = """
         insert into wom_group_tmp (wom_user_id, rsn, `rank`)
-        values (%s, %s, %s)
+            values (%s, %s, %s)
     """
     cursor.executemany(query, group)
 
-    # Insert and update new members locally
-    # A duplicate key would occure if a player changes their name
+    # Get updates
     query = """
-        insert into wom_group
-        select * from wom_group_tmp tmp
-        on duplicate key update rsn = tmp.rsn
+        select w.wom_user_id, w.rsn as old_name, t.rsn as new_name
+          from wom_group w
+          join wom_group_tmp t
+            on w.wom_user_id = t.wom_user_id
+         where w.rsn <> t.rsn
     """
     cursor.execute(query)
+    changes['updates'] = cursor.fetchall()
+    changes['total_changes'] += cursor.rowcount
 
-    # Delete members locally not in group
+    # Process updates
+    for update in changes['updates']:
+        query = """
+            update wom_group
+               set rsn = %s
+             where wom_user_id = %s
+               and rsn = %s
+        """
+        values = (update['new_name'], update['wom_user_id'], update['old_name'])
+        cursor.execute(query, values)
+
+    # Get inserts
     query = """
-        delete from wom_group w
+        select t.wom_user_id, t.rsn as new_name, t.rank
+          from wom_group_tmp t
          where not exists (
             select 1
-              from wom_group_tmp t
-             where w.rsn = t.rsn
+              from wom_group w
+             where t.wom_user_id = w.wom_user_id
          )
     """
     cursor.execute(query)
+    changes['inserts'] = cursor.fetchall()
+    changes['total_changes'] += cursor.rowcount
+
+    # Process inserts
+    for insert in changes['inserts']:
+        query = """
+            insert into wom_group (wom_user_id, rsn, `rank`)
+            values (%s, %s, %s)
+        """
+        values = (insert['wom_user_id'], insert['new_name'], insert['rank'])
+        cursor.execute(query, values)
+
+    # Get deletes
+    query = """
+        select w.wom_user_id, w.rsn as old_name
+          from wom_group w
+         where not exists (
+            select 1
+              from wom_group_tmp t
+             where w.wom_user_id = t.wom_user_id
+         )
+    """
+    cursor.execute(query)
+    changes['deletes'] = cursor.fetchall()
+    changes['total_changes'] += cursor.rowcount
+
+    # Process deletes
+    for delete in changes['deletes']:
+        query = """
+            delete from wom_group
+             where wom_user_id = %s
+        """
+        values = (delete['wom_user_id'])
+        cursor.execute(query, values)
+
+    return changes
+
 
 def check_local_wom(rsn):
     db = create_connection()

@@ -13,6 +13,10 @@ load_dotenv()
 TOKEN = os.getenv('TOKEN')
 DEV_CHANNEL_ID = int(os.getenv('PERSONAL_DEV_CHANNEL'))
 WEBHOOK_GRAVEYARD = int(os.getenv('WEBHOOK_GRAVEYARD'))
+CHIKBOT_ID = int(os.getenv('CHIKBOT_ID'))
+
+dink_channels = ['ACHIEVEMENTS', 'BOSSING', 'DED', 'LEVELS', 'PETS', 'LOOT']
+dink_webhooks = [int(os.getenv(f'{c}_WEBHOOK')) for c in dink_channels]
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -50,8 +54,8 @@ async def on_ready():
 @chikbot.event
 async def on_message(message):
 
-    # Process messages that were sent via webhook
-    if message.webhook_id:
+    # Process messages that were sent via webhook in the Dink channels
+    if message.webhook_id in dink_webhooks:
         channel = chikbot.get_channel(WEBHOOK_GRAVEYARD)
 
         # Dink messages should contain embeds

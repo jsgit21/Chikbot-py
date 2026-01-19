@@ -3,7 +3,8 @@ import datetime
 import discord
 from discord.ext import tasks, commands
 
-from .rolecheck import get_misranked_users, bulk_update_outdated_users, get_user_roles
+from .rolecheck import get_misranked_users, bulk_update_outdated_users, get_user_roles, get_members_with_ranks
+from . import wom_utilities as utils
 import database.db_methods as database
 
 class Wise_Old_Man(commands.Cog):
@@ -15,8 +16,40 @@ class Wise_Old_Man(commands.Cog):
         self.rolecheck.start()
         self.update_wom_group.start()
 
-        print('Syncing local wom group!')
-        self.sync_wom_group_to_db()
+
+    # Checks
+    async def is_moderator(ctx):
+        author_roles = ctx.author.roles
+        mod_role = discord.utils.get(author_roles, name='Moderator', id=360455451852406797)
+        return mod_role is not None
+
+    # Commands
+    @commands.check(is_moderator)
+    @discord.slash_command(description='''Sync the whitelist that controls access to Dink Webhooks.''')
+    async def sync_wom_whitelist(self, ctx):
+        all_members = get_members_with_ranks()
+        changes = database.update_local_wom_group(all_members)
+
+        if changes['total_changes'] == 0:
+            response = (
+                'There were no updates found for the WOM group.\n'
+                'Ensure the clan was Sync\'d to WOM through the game.\n'
+                '-# Ask Joe or Nick to update if needed'
+            )
+            await ctx.respond(response)
+        else:
+            msg = utils.format_wom_whitelist_changes(changes)
+            await ctx.respond(msg)
+
+    @sync_wom_whitelist.error
+    async def sync_wom_whitelist_error(self, ctx, error):
+        if isinstance(error, discord.errors.CheckFailure):
+            luigi_fu = discord.utils.get(self.bot.emojis, name='luigi_fu')
+            sit = discord.utils.get(self.bot.emojis, name='Sit')
+            msg = f'Moderator privileges are required for this command {sit} {luigi_fu}'
+            await ctx.respond(msg)
+        else:
+            raise Exception(error)
 
 
     @property
@@ -54,7 +87,7 @@ class Wise_Old_Man(commands.Cog):
             added_newlines = len(message_buffer) - 1
             new_length = curr_length + len(msg) + added_newlines
 
-            if new_length > 2000:
+            if new_length > 1800:
                 final_output.append('\n'.join(message_buffer))
                 # Clear out message buffer to start a new message
                 message_buffer = []
@@ -75,17 +108,20 @@ class Wise_Old_Man(commands.Cog):
         return ', '.join(guest_names)
 
     def sync_wom_group_to_db(self):
-        all_members = get_user_roles()
-        all_members = [
-            [user_id, member['username'], member['current_rank']]
-            for user_id, member in all_members.items()
-        ]
-        database.update_local_wom_group(all_members)
+        all_members = get_members_with_ranks()
+        changes = database.update_local_wom_group(all_members)
 
+        if changes['total_changes'] > 0:
+            msg = utils.format_wom_whitelist_changes(changes)
+            return msg
+        return None
 
     @tasks.loop(time=datetime.time(hour=13, minute=00))
     async def update_wom_group(self):
-        self.sync_wom_group_to_db()
+        sync_message = self.sync_wom_group_to_db()
+        if sync_message:
+            await self.mod_channel.send(sync_message)
+
         message = bulk_update_outdated_users()
         await self.dev_channel.send(message)
 

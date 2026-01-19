@@ -21,19 +21,25 @@ def rank_emoji(rank):
 def clan_ranks(requirement_only=False, titles_only=False):
     total_ranks = {
         'feeder': 0,
-        'jade': 1000,
-        'sapphire': 1200,
-        'emerald': 1400,
-        'red_topaz': 1600,
-        'diamond': 1800,
-        'dragonstone': 2000,
-        'onyx': 2100,
-        'zenyte': 2200,
-        'maxed': 2277,
+        'sapphire': 1000,
+        'emerald': 1500,
+        'red_topaz': 1750,
+        'diamond': 2000,
+        'dragonstone': 2100,
+        'onyx': 2200,
+        'zenyte': 2300,
+        'maxed': 2376,
     }
 
+    # Retired ranks are important to include for the transition
+    # period of switching ranks over to a new system
+    retired_ranks = {
+        'jade': 1000
+    }
+
+
     if titles_only:
-        return list(total_ranks.keys())
+        return list(total_ranks.keys()) + list(retired_ranks.keys())
 
     if requirement_only:
         return total_ranks
@@ -152,6 +158,15 @@ def get_misranked_users():
             misranked_users.append(data)
 
     return misranked_users
+
+def get_members_with_ranks():
+    all_members = get_user_roles()
+    all_members = [
+        [user_id, member['username'], member['current_rank']]
+        for user_id, member in all_members.items()
+    ]
+    return all_members
+
 
 if __name__ == '__main__':
     for user, values in get_user_roles().items():
