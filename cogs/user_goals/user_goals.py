@@ -157,7 +157,7 @@ class User_Goals(commands.Cog):
     async def view_goals_completed(self, ctx, member):
         user_id = member.id
         user_name = member.nick or member.global_name or member.name
-        goals = await asyncio.to_thread(database.get_goals, user_id, type='completed')
+        goals = await asyncio.to_thread(database.get_goals, user_id, type='complete')
 
         if len(goals) == 0:
             await ctx.respond(f'__**{user_name}**__ has no completed goals.')
