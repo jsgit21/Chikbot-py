@@ -116,7 +116,7 @@ def get_user_roles(rank=None):
         id = player['id']
         player_dict = {}
 
-        player_dict['username'] = player['username']
+        player_dict['username'] = player['displayName'].lower()
         player_dict['current_rank'] = player_obj['role']
         parsed_data[id] = player_dict
 
@@ -170,7 +170,10 @@ def get_members_with_ranks():
 
 
 if __name__ == '__main__':
-    for user, values in get_user_roles().items():
-        print(values['username'])
+    #for user, values in get_user_roles().items():
+    #    print(values['username'])
+    for v in get_members_with_ranks():
+        if v[1].startswith('t'):
+            print(v)
 
 
