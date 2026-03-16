@@ -140,3 +140,28 @@ def check_local_wom(rsn):
     active_member = cursor.execute(query, rsn)
     return active_member
 
+def register_latest_dink_transaction(channel, message_id):
+    db = create_connection()
+    cursor = db.cursor()
+
+    query = """
+        update latest_dink_transactions
+           set message_id = %s
+         where channel_name = %s
+    """
+    cursor.execute(query, (message_id, channel))
+    return
+
+def get_latest_dink_transaction(channel):
+    db = create_connection()
+    cursor = db.cursor()
+
+    query = """
+        select message_id
+          from latest_dink_transactions
+         where channel_name = %s
+    """
+    cursor.execute(query, channel)
+    message_id = cursor.fetchone()[0]
+    return message_id
+
