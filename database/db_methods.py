@@ -133,6 +133,9 @@ def check_local_wom(rsn):
     db = create_connection()
     cursor = db.cursor()
 
+    # osrs dedupes names regardless of hypens
+    rsn = rsn.replace('-', ' ')
+
     query = """
         select *
           from wom_group where rsn = %s
