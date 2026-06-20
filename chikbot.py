@@ -97,14 +97,15 @@ async def process_dink_message(message):
     embed.set_footer(text=f'Powered by Dink | Casual GMers', icon_url=dink_icon)
 
     embed.colour = 0xFFDE21
-    if '[Seasonal]' in embed.title:
+    seasonal = '[Seasonal]' in embed.title
+    if seasonal:
         embed.colour = 0xCC0D06
 
     # Ensure the rsn coming through dink is part of our group
     rsn = embed.author.name
     group_member = database.check_local_wom(rsn)
 
-    if group_member:
+    if group_member and not seasonal:
         # Forward the embed to the user facing channels via webhook fwds
         webhook = await get_webhook_for_channel(channel_name)
         await webhook.send(embed=embed, username=webhook.name.replace('fwd ', ''))
