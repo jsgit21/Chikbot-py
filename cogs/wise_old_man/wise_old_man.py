@@ -133,20 +133,25 @@ class Wise_Old_Man(commands.Cog):
 
     @tasks.loop(time=datetime.time(hour=14, minute=00))
     async def rolecheck(self):
-        update_users = get_misranked_users()
+        try:
+            update_users = get_misranked_users()
 
-        if len(update_users) > 0:
-            output_message_list = self.format_output(update_users)
+            if len(update_users) > 0:
+                output_message_list = self.format_output(update_users)
 
-            for output_message in output_message_list:
-                await self.mod_channel.send(output_message)
+                for output_message in output_message_list:
+                    await self.mod_channel.send(output_message)
 
-            note = '-# The WOM group has to be re-syncd once ranks are changed. (Ask Joe or Nick)'
-            await self.mod_channel.send(note)
+                note = '-# The WOM group has to be re-syncd once ranks are changed. (Ask Joe or Nick)'
+                await self.mod_channel.send(note)
 
-            # Provide a list of guests in the group
-            guest_list = self.get_guests()
-            await self.mod_channel.send(f'-# Guests for WOM sync: {guest_list}')
+                # Provide a list of guests in the group
+                guest_list = self.get_guests()
+                await self.mod_channel.send(f'-# Guests for WOM sync: {guest_list}')
+        except Exception as e:
+            print(e)
+            await self.mod_channel.send('Failed to run rolecheck')
+            await self.mod_channel.send(f'{str(e)}')
 
 
     @rolecheck.before_loop
