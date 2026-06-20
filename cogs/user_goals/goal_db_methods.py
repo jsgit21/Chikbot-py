@@ -1,18 +1,20 @@
 import pymysql
+import database.db_methods as database
 
-def add_goal(db, user_id, goal, parent_goal_number):
+def add_goal(user_id, goal, parent_goal_number, testdb=None):
+    db = testdb if testdb else database.create_connection()
     cursor = db.cursor()
 
     parent_id = None
     if parent_goal_number:
-        parent_row = get_goals(db, user_id, parent_goal_number)
+        parent_row = get_goals(user_id, goal_number=parent_goal_number, type='incomplete')
 
         if parent_row is None:
             return
         parent_id = parent_row['id']
 
     query = """
-        insert into Discord.user_goal (user_id, goal, parent_id)
+        insert into user_goal (user_id, goal, parent_id)
         values(%s, %s, %s)
     """
     values = (
@@ -23,9 +25,17 @@ def add_goal(db, user_id, goal, parent_goal_number):
     cursor.execute(query, values)
     return cursor.lastrowid
 
-
-def get_goals(db, user_id, goal_number=None):
+def get_goals(user_id, goal_number=None, type=None, testdb=None):
+    db = testdb if testdb else database.create_connection()
     cursor = db.cursor(pymysql.cursors.DictCursor)
+
+    if type not in [None, 'complete', 'incomplete']:
+        raise Exception(f'Incorrect type: {type}')
+
+    goals_view = 'ordered_goals'
+    if type is not None:
+        goals_view = f'ordered_{type}_goals'
+
 
     query = """
         select id,
@@ -35,9 +45,9 @@ def get_goals(db, user_id, goal_number=None):
                completed,
                cast(insert_date as date) as insert_date,
                cast(completed_date as date) as completed_date
-          from Discord.ordered_goals
+          from {view}
          where user_id = %s
-    """
+    """.format(view=goals_view)
     if goal_number:
         query += f'and rnk = %s'
         cursor.execute(query, (user_id, goal_number))
@@ -46,17 +56,18 @@ def get_goals(db, user_id, goal_number=None):
     cursor.execute(query, (user_id))
     return cursor.fetchall()
 
-def complete_goal(db, user_id, goal_number):
+def complete_goal(user_id, goal_number, testdb=None):
+    db = testdb if testdb else database.create_connection()
     cursor = db.cursor()
 
-    # Flip the completed value, so this function can be used to add or
-    # remove completion
+    # Get the goal info before deleting
+    row = get_goals(user_id, goal_number, type='incomplete')
 
     query = """
-        update Discord.user_goal u
-          join Discord.ordered_goals o
+        update user_goal u
+          join ordered_incomplete_goals o
             on u.id = o.id
-           set u.completed = not u.completed,
+           set u.completed = True,
                u.completed_date = now()
          where u.user_id = %s
            and o.rnk = %s
@@ -67,20 +78,20 @@ def complete_goal(db, user_id, goal_number):
     )
     cursor.execute(query, values)
 
-    row = get_goals(db, user_id, goal_number)
     return row
 
-def delete_goal(db, user_id, goal_number):
+def delete_goal(user_id, goal_number, testdb=None):
+    db = testdb if testdb else database.create_connection()
     cursor = db.cursor()
 
-    row = get_goals(db, user_id, goal_number)
+    row = get_goals(user_id, goal_number=goal_number, type='incomplete')
     if row is None:
         return
 
     query = """
         delete u
-          from Discord.user_goal u
-          join Discord.ordered_goals o
+          from user_goal u
+          join ordered_incomplete_goals o
             on u.id = o.id
          where u.user_id = %s
            and o.rnk = %s
@@ -93,16 +104,17 @@ def delete_goal(db, user_id, goal_number):
 
     return row
 
-def edit_goal(db, user_id, goal_number, goal):
+def edit_goal(user_id, goal_number, goal, testdb=None):
+    db = testdb if testdb else database.create_connection()
     cursor = db.cursor()
 
-    row = get_goals(db, user_id, goal_number)
+    row = get_goals(user_id, goal_number=goal_number, type='incomplete')
     if row is None:
         return
 
     query = """
-        update Discord.user_goal u
-          join Discord.ordered_goals o
+        update user_goal u
+          join ordered_incomplete_goals o
             on u.id = o.id
            set u.goal = %s
          where u.user_id = %s
