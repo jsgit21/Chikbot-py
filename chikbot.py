@@ -14,6 +14,7 @@ import database.db_methods as database
 load_dotenv()
 TOKEN = os.getenv('TOKEN')
 DEV_CHANNEL_ID = int(os.getenv('PERSONAL_DEV_CHANNEL'))
+GM_CHANNEL_ID = int(os.getenv('GM_CHANNEL'))
 WEBHOOK_GRAVEYARD = int(os.getenv('WEBHOOK_GRAVEYARD'))
 CHIKBOT_ID = int(os.getenv('CHIKBOT_ID'))
 CHIKEN_TENDERS_GUILD = int(os.getenv('CHIKEN_TENDERS_GUILD'))
@@ -54,6 +55,13 @@ async def random_emoji_reaction(message, max):
     if send_value > max - 2:
         reaction = get_random_emoji()
         await message.add_reaction(reaction)
+
+
+async def gm_reply(message):
+    if message.channel.id != GM_CHANNEL_ID:
+        return
+    if random.randint(1, 100) == 1:
+        await message.reply(f"GM {get_random_emoji()}")
 
 
 async def get_image_bytes(url):
@@ -158,6 +166,7 @@ async def on_message(message):
 
     await asyncio.to_thread(database.register_user, message.author)
     await random_emoji_reaction(message, 50)
+    await gm_reply(message)
 
 
 chikbot.run(TOKEN)
