@@ -32,3 +32,51 @@ create view Discord.ordered_goals as (
     left join Discord.user_goal s
       on g.parent_id = s.id
 );
+
+-- One Discord user can own many RSNs (one-to-many). Keyed by wom_user_id, the
+-- stable WOM player id, so the link survives in-game renames (a rename is an
+-- UPDATE on wom_group, not a delete). The current RSN is never stored here; it
+-- is always read from wom_group, which the daily sync keeps up to date.
+--
+-- The FK to wom_group keeps the two tables from drifting. ON DELETE CASCADE is
+-- required because the daily sync (update_local_wom_group) deletes members who
+-- leave the group: cascade removes their link with them (re-link via /wom link
+-- on rejoin). RESTRICT would instead make that sync delete fail.
+create table Discord.wom_link (
+  wom_user_id int unsigned primary key,
+  user_id bigint unsigned not null,
+  linked_at timestamp default current_timestamp,
+  constraint fk_wom_link_user foreign key (user_id) references Discord.user (user_id),
+  constraint fk_wom_link_group foreign key (wom_user_id) references Discord.wom_group (wom_user_id) on delete cascade
+);
+
+-- Conversational alias used in competition titles/posts ("mayo", "peppy").
+alter table Discord.user add column preferred_alias varchar(32) null;
+
+-- A BOTW + SOTW pairing and its lifecycle. Drives "weeks since last cycle".
+create table Discord.competition_cycle (
+  id int unsigned primary key auto_increment,
+  starts_at datetime not null,
+  ends_at datetime not null,
+  status enum('planned', 'active', 'ended', 'announced') default 'planned',
+  created_at timestamp default current_timestamp
+);
+
+-- One row per WOM competition we create/track (two per cycle).
+-- verification_code is sensitive: it grants edit/delete on the WOM competition.
+create table Discord.competition (
+  competition_id int unsigned primary key,
+  cycle_id int unsigned null,
+  type enum('botw', 'sotw') not null,
+  metric varchar(32) not null,
+  title varchar(255) not null,
+  starts_at datetime not null,
+  ends_at datetime not null,
+  verification_code varchar(64) null,
+  picker_user_id bigint unsigned null,
+  winner_wom_user_id int unsigned null,
+  winner_gained bigint null,
+  results_posted boolean default false,
+  created_at timestamp default current_timestamp,
+  constraint fk_competition_cycle foreign key (cycle_id) references Discord.competition_cycle (id)
+);
