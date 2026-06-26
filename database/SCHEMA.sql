@@ -34,14 +34,20 @@ create view Discord.ordered_goals as (
 );
 
 -- One Discord user can own many RSNs (one-to-many). Keyed by wom_user_id, the
--- stable WOM player id, so the link survives in-game renames (and temporary
--- group departures). The current RSN is never stored here; it is always read
--- from wom_group, which the daily sync keeps up to date.
+-- stable WOM player id, so the link survives in-game renames (a rename is an
+-- UPDATE on wom_group, not a delete). The current RSN is never stored here; it
+-- is always read from wom_group, which the daily sync keeps up to date.
+--
+-- The FK to wom_group keeps the two tables from drifting. ON DELETE CASCADE is
+-- required because the daily sync (update_local_wom_group) deletes members who
+-- leave the group: cascade removes their link with them (re-link via /wom link
+-- on rejoin). RESTRICT would instead make that sync delete fail.
 create table Discord.wom_link (
   wom_user_id int unsigned primary key,
   user_id bigint unsigned not null,
   linked_at timestamp default current_timestamp,
-  constraint fk_wom_link_user foreign key (user_id) references Discord.user (user_id)
+  constraint fk_wom_link_user foreign key (user_id) references Discord.user (user_id),
+  constraint fk_wom_link_group foreign key (wom_user_id) references Discord.wom_group (wom_user_id) on delete cascade
 );
 
 -- Conversational alias used in competition titles/posts ("mayo", "peppy").
