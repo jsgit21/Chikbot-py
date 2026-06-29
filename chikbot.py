@@ -26,31 +26,21 @@ chikbot.load_extension('cogs.wise_old_man.wise_old_man')
 chikbot.load_extension('cogs.runescape_logger.runescape_logger')
 
 
-def get_random_emoji():
-    emoji_list = chikbot.emojis
-    max_rand = len(emoji_list) - 1
-    pick = random.randint(0, max_rand)
-    emoji = emoji_list[pick]
-    return f'<{emoji.name}:{emoji.id}>'
-
-
-def get_random_emoji_v2() -> discord.Emoji:
+def get_random_emoji() -> discord.Emoji:
     return random.choice(chikbot.emojis)
 
 
 async def random_emoji_reaction(message, max):
     send_value = random.randint(0, max)
     if send_value > max - 2:
-        reaction = get_random_emoji()
-        await message.add_reaction(reaction)
+        await message.add_reaction(get_random_emoji())
 
 
 async def gm_reply(message):
     if message.channel.id != GM_CHANNEL_ID:
         return
     if random.randint(1, 20) == 1:
-        random_emoji = get_random_emoji_v2()
-        await message.reply(f"{GM_EMOJI} {random_emoji}")
+        await message.reply(f"{GM_EMOJI} {get_random_emoji()}")
 
 
 @chikbot.event
