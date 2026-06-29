@@ -37,6 +37,14 @@ chikbot.load_extension('cogs.wise_old_man.wise_old_man')
 
 
 def get_random_emoji():
+    emoji_list = chikbot.emojis
+    max_rand = len(emoji_list) - 1
+    pick = random.randint(0, max_rand)
+    emoji = emoji_list[pick]
+    return f'<{emoji.name}:{emoji.id}>'
+
+
+def get_random_emoji_v2() -> discord.Emoji:
     return random.choice(chikbot.emojis)
 
 
@@ -50,7 +58,7 @@ async def get_webhook_for_channel(channel, guild=CHIKEN_TENDERS_GUILD):
 async def random_emoji_reaction(message, max):
     send_value = random.randint(0, max)
     if send_value > max - 2:
-        reaction = get_random_emoji()
+        reaction = get_random_emoji_v2()
         await message.add_reaction(reaction)
 
 
