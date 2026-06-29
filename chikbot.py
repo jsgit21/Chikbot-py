@@ -37,14 +37,6 @@ chikbot.load_extension('cogs.wise_old_man.wise_old_man')
 
 
 def get_random_emoji():
-    emoji_list = chikbot.emojis
-    max_rand = len(emoji_list) - 1
-    pick = random.randint(0, max_rand)
-    emoji = emoji_list[pick]
-    return f'<{emoji.name}:{emoji.id}>'
-
-
-def get_random_emoji_v2() -> discord.Emoji:
     return random.choice(chikbot.emojis)
 
 
@@ -66,7 +58,7 @@ async def gm_reply(message):
     if message.channel.id != GM_CHANNEL_ID:
         return
     if random.randint(1, 20) == 1:
-        random_emoji = get_random_emoji_v2()
+        random_emoji = get_random_emoji()
         await message.reply(f"{GM_EMOJI} {random_emoji}")
 
 
