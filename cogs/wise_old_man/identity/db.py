@@ -207,6 +207,16 @@ def unclaim_rsn(rsn, user_id, testdb=None):
     return 'unlinked'
 
 
+def get_alias(user_id, testdb=None):
+    """Return a Discord user's preferred_alias, or None if unset/no user row."""
+    db = testdb if testdb else database.create_connection()
+    cursor = db.cursor()
+
+    cursor.execute('select preferred_alias from user where user_id = %s', (user_id,))
+    row = cursor.fetchone()
+    return row[0] if row else None
+
+
 def discord_user_for_wom_id(wom_user_id, testdb=None):
     """Return (user_id, preferred_alias) for a linked WOM player id, or None.
 

@@ -1,9 +1,10 @@
-"""Tests for Phase 2 pure-logic modules: winners, event_calendar, announcements.
+"""Tests for Phase 2/3 pure-logic modules: winners, event_calendar, announcements.
 
 No network, no clock, no DB in this file. All DB calls in winners.py are
 isolated by passing testdb=None and replacing identity_db calls with mocks
 where needed (see test_resolve_winner_* below).
 """
+import datetime
 import types
 import unittest.mock as mock
 
@@ -251,3 +252,27 @@ def test_build_results_post_unlinked_winner():
 def test_build_results_post_none_winner():
     text = announcements.build_results_post(None, None)
     assert 'no winner data available' in text
+
+
+# ---------------------------------------------------------------------------
+# announcements.build_kickoff_post
+# ---------------------------------------------------------------------------
+
+def _pick(title, metric_display, picker_text):
+    return {'title': title, 'metric_display': metric_display, 'picker_text': picker_text}
+
+
+def test_build_kickoff_post_includes_titles_and_pickers():
+    botw = _pick("Vorkath - Boss of the Week [mayo's pick]", 'Vorkath', '<@1234>')
+    sotw = _pick("Runecrafting - Skill of the Week [crab's pick]", 'Runecrafting', '@peppy')
+    starts_at = datetime.datetime(2026, 7, 4, 14, 0)  # 10:00 ET
+    ends_at = datetime.datetime(2026, 7, 6, 4, 0)     # 00:00 ET
+
+    text = announcements.build_kickoff_post(starts_at, ends_at, botw, sotw)
+
+    assert "Vorkath - Boss of the Week [mayo's pick]" in text
+    assert "Runecrafting - Skill of the Week [crab's pick]" in text
+    assert '<@1234>' in text
+    assert '@peppy' in text
+    assert 'Sat 7/4 10:00 AM' in text
+    assert 'Mon 7/6 12:00 AM ET' in text

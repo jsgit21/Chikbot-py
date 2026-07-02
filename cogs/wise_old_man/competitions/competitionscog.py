@@ -5,9 +5,11 @@ import os
 import discord
 from discord.ext import commands, tasks
 
+import database.db_methods as db_methods
+from ..identity import db as identity_db
 from ..shared import checks, tz
-from . import announcements, db as comp_db, event_calendar, winners, wom_api
-from .views import ResultsApprovalView
+from . import announcements, db as comp_db, event_calendar, metrics, scheduling, winners, wom_api
+from .views import ConfirmCreateView, KickoffApprovalView, ResultsApprovalView
 
 
 class Competitions(commands.Cog):
@@ -30,6 +32,7 @@ class Competitions(commands.Cog):
     @commands.Cog.listener()
     async def on_ready(self):
         self.bot.add_view(ResultsApprovalView())
+        self.bot.add_view(KickoffApprovalView())
 
     # -------------------------------------------------------------------------
     # Monday detection loop
@@ -44,6 +47,112 @@ class Competitions(commands.Cog):
     @winner_detection.before_loop
     async def before_winner_detection(self):
         await self.bot.wait_until_ready()
+
+    # -------------------------------------------------------------------------
+    # /competition create
+    # -------------------------------------------------------------------------
+
+    @competition.command(description='Create the next BOTW/SOTW competitions and draft a kickoff post')
+    @commands.check(checks.moderator_command)
+    async def create(self, ctx,
+                     botw_metric: discord.Option(
+                         str, 'Boss metric for BOTW',
+                         autocomplete=metrics.autocomplete_botw_metric, required=True),
+                     sotw_metric: discord.Option(
+                         str, 'Skill metric for SOTW',
+                         autocomplete=metrics.autocomplete_sotw_metric, required=True),
+                     weeks_out: discord.Option(
+                         int, 'Weeks beyond the next available Saturday (0 = next available)',
+                         required=False) = 0,
+                     botw_picker: discord.Option(
+                         discord.Member, "Who picked the BOTW boss (default: last cycle's SOTW winner)",
+                         required=False) = None,
+                     sotw_picker: discord.Option(
+                         discord.Member, "Who picked the SOTW skill (default: last cycle's BOTW winner)",
+                         required=False) = None):
+        await ctx.defer()
+
+        if botw_metric not in metrics.BOTW_METRICS:
+            await ctx.respond(f'`{botw_metric}` is not a vetted BOTW metric.', ephemeral=True)
+            return
+        if sotw_metric not in metrics.SOTW_METRICS:
+            await ctx.respond(f'`{sotw_metric}` is not a vetted SOTW metric.', ephemeral=True)
+            return
+
+        last_cycle = await asyncio.to_thread(comp_db.get_last_cycle)
+        after = last_cycle['ends_at'] if last_cycle else datetime.datetime.now(tz.ET).date()
+        starts_at, ends_at = scheduling.next_cycle_window(after, weeks_out=weeks_out)
+
+        botw_picker_id, botw_picker_alias = await self._resolve_picker(
+            ctx.guild, botw_picker, last_cycle, 'botw'
+        )
+        sotw_picker_id, sotw_picker_alias = await self._resolve_picker(
+            ctx.guild, sotw_picker, last_cycle, 'sotw'
+        )
+
+        botw_display = metrics.display_name('botw', botw_metric)
+        sotw_display = metrics.display_name('sotw', sotw_metric)
+        botw_title = f"{botw_display} - Boss of the Week [{botw_picker_alias}'s pick]"
+        sotw_title = f"{sotw_display} - Skill of the Week [{sotw_picker_alias}'s pick]"
+
+        payload = {
+            'starts_at': starts_at,
+            'ends_at': ends_at,
+            'botw': {
+                'metric': botw_metric, 'metric_display': botw_display, 'title': botw_title,
+                'picker_user_id': botw_picker_id,
+                'picker_text': f'<@{botw_picker_id}>' if botw_picker_id else botw_picker_alias,
+            },
+            'sotw': {
+                'metric': sotw_metric, 'metric_display': sotw_display, 'title': sotw_title,
+                'picker_user_id': sotw_picker_id,
+                'picker_text': f'<@{sotw_picker_id}>' if sotw_picker_id else sotw_picker_alias,
+            },
+        }
+
+        start_et = starts_at.replace(tzinfo=datetime.timezone.utc).astimezone(tz.ET)
+        end_et = ends_at.replace(tzinfo=datetime.timezone.utc).astimezone(tz.ET)
+        preview = (
+            '**Preview — /competition create**\n\n'
+            f'**BOTW** — {botw_title}\n'
+            f'**SOTW** — {sotw_title}\n\n'
+            f'Runs **{start_et.strftime("%a %Y-%m-%d %H:%M")}** → '
+            f'**{end_et.strftime("%a %Y-%m-%d %H:%M")} ET**\n\n'
+            '-# Click **Confirm & Create** to create both competitions on WOM.'
+        )
+        await ctx.respond(preview, view=ConfirmCreateView(payload))
+
+    async def _resolve_picker(self, guild, explicit_member, last_cycle, comp_type):
+        """Return (picker_user_id, picker_alias) for a BOTW/SOTW pick.
+
+        An explicit member selection wins; otherwise defaults to the
+        cross-assigned winner from the last cycle (BOTW winner picks the
+        next SOTW target; SOTW winner picks the next BOTW target).
+        """
+        if explicit_member:
+            await asyncio.to_thread(db_methods.register_user, explicit_member)
+            alias = await asyncio.to_thread(identity_db.get_alias, explicit_member.id)
+            return explicit_member.id, (alias or explicit_member.display_name)
+
+        if not last_cycle:
+            return None, 'the group'
+
+        comps = await asyncio.to_thread(comp_db.get_competitions_for_cycle, last_cycle['id'])
+        source_type = 'sotw' if comp_type == 'botw' else 'botw'
+        row = next((c for c in comps if c['type'] == source_type), None)
+        if not row or not row['winner_wom_user_id']:
+            return None, 'the group'
+
+        identity = await asyncio.to_thread(identity_db.discord_user_for_wom_id, row['winner_wom_user_id'])
+        if not identity:
+            return None, 'the group'
+
+        user_id = identity['user_id']
+        alias = identity['preferred_alias']
+        if not alias:
+            member = guild.get_member(user_id)
+            alias = member.display_name if member else 'the group'
+        return user_id, alias
 
     # -------------------------------------------------------------------------
     # Debug command

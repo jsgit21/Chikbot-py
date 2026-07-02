@@ -82,6 +82,26 @@ def get_pending_cycles(testdb=None):
     return cursor.fetchall()
 
 
+def get_planned_cycles(testdb=None):
+    """Return cycles created by /competition create but not yet kicked off."""
+    db = testdb if testdb else database.create_connection()
+    cursor = db.cursor(pymysql.cursors.DictCursor)
+    cursor.execute(
+        "select * from competition_cycle where status = 'planned' order by starts_at desc"
+    )
+    return cursor.fetchall()
+
+
+def get_last_cycle(testdb=None):
+    """Return the most recently ended cycle (any status), or None if there isn't one."""
+    db = testdb if testdb else database.create_connection()
+    cursor = db.cursor(pymysql.cursors.DictCursor)
+    cursor.execute(
+        'select * from competition_cycle order by ends_at desc limit 1'
+    )
+    return cursor.fetchone()
+
+
 def get_competitions_for_cycle(cycle_id, testdb=None):
     db = testdb if testdb else database.create_connection()
     cursor = db.cursor(pymysql.cursors.DictCursor)
