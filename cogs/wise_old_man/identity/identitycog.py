@@ -124,6 +124,63 @@ class Identity(commands.Cog):
         await asyncio.to_thread(identity_db.set_preferred_alias, member.id, alias)
         await ctx.respond(f'Alias for {member.mention} set to **{alias}**')
 
+    # ------------------------------------------------------------------
+    # User-facing self-service commands (no mod gate)
+    # ------------------------------------------------------------------
+
+    @wom.command(description='Link a RuneScape name to your own Discord account')
+    async def claim(self, ctx,
+                    rsn: discord.Option(str, 'Your RuneScape name as it appears in WOM', required=True)):
+        await asyncio.to_thread(db_methods.register_user, ctx.author)
+        status, member = await asyncio.to_thread(identity_db.claim_rsn, rsn, ctx.author.id)
+
+        if status == 'not_in_group':
+            await ctx.respond(
+                f'`{rsn}` is not in the WOM group. Check the spelling or ask a mod.',
+                ephemeral=True,
+            )
+        elif status == 'already_yours':
+            await ctx.respond(
+                f'`{member["rsn"]}` is already linked to your account.',
+                ephemeral=True,
+            )
+        elif status == 'already_claimed':
+            await ctx.respond(
+                f'`{member["rsn"]}` is already linked to another member. '
+                'If this is your account, ask a moderator to resolve it.',
+                ephemeral=True,
+            )
+        else:
+            await ctx.respond(f'Linked `{member["rsn"]}` to your account.')
+
+    @wom.command(description='Remove a RuneScape name from your Discord account')
+    async def unclaim(self, ctx,
+                      rsn: discord.Option(str, 'RuneScape name to remove from your account', required=True)):
+        status = await asyncio.to_thread(identity_db.unclaim_rsn, rsn, ctx.author.id)
+
+        if status == 'not_in_group':
+            await ctx.respond(f'`{rsn}` is not in the WOM group.', ephemeral=True)
+        elif status == 'not_linked':
+            await ctx.respond(f'`{rsn}` has no Discord link to remove.', ephemeral=True)
+        elif status == 'not_yours':
+            await ctx.respond(f'`{rsn}` is not linked to your account.', ephemeral=True)
+        else:
+            await ctx.respond(f'Removed `{rsn}` from your linked accounts.', ephemeral=True)
+
+    @wom.command(description='Show the RuneScape names linked to your account')
+    async def myrsns(self, ctx):
+        rows = await asyncio.to_thread(identity_db.whois_user, ctx.author.id)
+        if not rows:
+            await ctx.respond(
+                'You have no linked RSNs. Use `/wom claim <rsn>` to add one.',
+                ephemeral=True,
+            )
+            return
+        names = ', '.join(f'`{r["rsn"]}`' for r in rows)
+        alias = rows[0]['preferred_alias']
+        alias_text = f' (alias: **{alias}**)' if alias else ''
+        await ctx.respond(f'Your linked RSNs{alias_text}: {names}', ephemeral=True)
+
 
 def setup(bot):
     bot.add_cog(Identity(bot))

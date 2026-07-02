@@ -130,6 +130,83 @@ def discord_user_for_rsn(rsn, testdb=None):
     return cursor.fetchone()
 
 
+def claim_rsn(rsn, user_id, testdb=None):
+    """Self-service link: attach an RSN to the invoking user.
+
+    Unlike link_rsn (mod command), this refuses to overwrite a link that already
+    belongs to a different Discord user. The caller must have already called
+    register_user to satisfy the wom_link FK.
+
+    Returns (status, member_row):
+        ('linked',          row)  - success, new link created
+        ('already_yours',   row)  - RSN was already linked to this user
+        ('already_claimed', row)  - RSN is linked to a different user
+        ('not_in_group',   None)  - RSN not found in wom_group
+    """
+    db = testdb if testdb else database.create_connection()
+    cursor = db.cursor(pymysql.cursors.DictCursor)
+
+    cursor.execute(
+        'select wom_user_id, rsn from wom_group where rsn = %s',
+        (_normalize_rsn(rsn),)
+    )
+    member = cursor.fetchone()
+    if member is None:
+        return 'not_in_group', None
+
+    cursor.execute(
+        'select user_id from wom_link where wom_user_id = %s',
+        (member['wom_user_id'],)
+    )
+    existing = cursor.fetchone()
+    if existing:
+        if existing['user_id'] == user_id:
+            return 'already_yours', member
+        return 'already_claimed', member
+
+    cursor.execute(
+        'insert into wom_link (wom_user_id, user_id) values (%s, %s)',
+        (member['wom_user_id'], user_id),
+    )
+    return 'linked', member
+
+
+def unclaim_rsn(rsn, user_id, testdb=None):
+    """Self-service unlink: remove an RSN from the invoking user's account.
+
+    Only succeeds if the RSN is currently linked to this exact user_id.
+
+    Returns one of:
+        'unlinked'      - success
+        'not_yours'     - RSN belongs to a different Discord user
+        'not_linked'    - RSN exists in wom_group but has no link
+        'not_in_group'  - RSN not found in wom_group
+    """
+    db = testdb if testdb else database.create_connection()
+    cursor = db.cursor(pymysql.cursors.DictCursor)
+
+    cursor.execute(
+        'select wom_user_id from wom_group where rsn = %s',
+        (_normalize_rsn(rsn),)
+    )
+    member = cursor.fetchone()
+    if member is None:
+        return 'not_in_group'
+
+    cursor.execute(
+        'select user_id from wom_link where wom_user_id = %s',
+        (member['wom_user_id'],)
+    )
+    existing = cursor.fetchone()
+    if not existing:
+        return 'not_linked'
+    if existing['user_id'] != user_id:
+        return 'not_yours'
+
+    cursor.execute('delete from wom_link where wom_user_id = %s', (member['wom_user_id'],))
+    return 'unlinked'
+
+
 def discord_user_for_wom_id(wom_user_id, testdb=None):
     """Return (user_id, preferred_alias) for a linked WOM player id, or None.
 

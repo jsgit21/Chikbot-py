@@ -33,7 +33,8 @@ chikbot = discord.Bot(intents=intents)
 # Cogs
 chikbot.load_extension('cogs.user_goals.user_goals')
 chikbot.load_extension('cogs.wise_old_man.wise_old_man')
-chikbot.load_extension('cogs.wise_old_man.identity.cog')
+chikbot.load_extension('cogs.wise_old_man.identity.identitycog')
+chikbot.load_extension('cogs.wise_old_man.competitions.competitionscog')
 
 
 def get_random_emoji():

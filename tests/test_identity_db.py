@@ -146,3 +146,77 @@ def test_link_survives_rename(test_db, setup_identity_tables):
     assert identity_db.discord_user_for_rsn('spoiled mayo', testdb=test_db) is None
     assert identity_db.discord_user_for_wom_id(100, testdb=test_db)['user_id'] == 1
     assert identity_db.whois_user(1, testdb=test_db)[0]['rsn'] == 'fresh mayo'
+
+
+# ---------------------------------------------------------------------------
+# claim_rsn
+# ---------------------------------------------------------------------------
+
+def test_claim_rsn_success(test_db, setup_identity_tables):
+    status, member = identity_db.claim_rsn('spoiled mayo', 1, testdb=test_db)
+
+    assert status == 'linked'
+    assert member['wom_user_id'] == 100
+    assert _linked_user_id(test_db, 100) == 1
+
+
+def test_claim_rsn_already_yours(test_db, setup_identity_tables):
+    identity_db.claim_rsn('spoiled mayo', 1, testdb=test_db)
+    status, member = identity_db.claim_rsn('spoiled mayo', 1, testdb=test_db)
+
+    assert status == 'already_yours'
+    assert member['wom_user_id'] == 100
+
+
+def test_claim_rsn_already_claimed_by_other(test_db, setup_identity_tables):
+    identity_db.claim_rsn('spoiled mayo', 1, testdb=test_db)
+    status, member = identity_db.claim_rsn('spoiled mayo', 2, testdb=test_db)
+
+    assert status == 'already_claimed'
+    assert _linked_user_id(test_db, 100) == 1  # original owner unchanged
+
+
+def test_claim_rsn_not_in_group(test_db, setup_identity_tables):
+    status, member = identity_db.claim_rsn('nobody', 1, testdb=test_db)
+
+    assert status == 'not_in_group'
+    assert member is None
+
+
+def test_claim_rsn_normalizes_input(test_db, setup_identity_tables):
+    status, member = identity_db.claim_rsn('Spoiled-Mayo', 1, testdb=test_db)
+
+    assert status == 'linked'
+    assert member['rsn'] == 'spoiled mayo'
+
+
+# ---------------------------------------------------------------------------
+# unclaim_rsn
+# ---------------------------------------------------------------------------
+
+def test_unclaim_rsn_success(test_db, setup_identity_tables):
+    identity_db.claim_rsn('spoiled mayo', 1, testdb=test_db)
+    status = identity_db.unclaim_rsn('spoiled mayo', 1, testdb=test_db)
+
+    assert status == 'unlinked'
+    assert _linked_user_id(test_db, 100) is None
+
+
+def test_unclaim_rsn_not_yours(test_db, setup_identity_tables):
+    identity_db.claim_rsn('spoiled mayo', 1, testdb=test_db)
+    status = identity_db.unclaim_rsn('spoiled mayo', 2, testdb=test_db)
+
+    assert status == 'not_yours'
+    assert _linked_user_id(test_db, 100) == 1  # link untouched
+
+
+def test_unclaim_rsn_not_linked(test_db, setup_identity_tables):
+    status = identity_db.unclaim_rsn('spoiled mayo', 1, testdb=test_db)
+
+    assert status == 'not_linked'
+
+
+def test_unclaim_rsn_not_in_group(test_db, setup_identity_tables):
+    status = identity_db.unclaim_rsn('nobody', 1, testdb=test_db)
+
+    assert status == 'not_in_group'
