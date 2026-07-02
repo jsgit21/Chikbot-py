@@ -62,14 +62,16 @@ def resolve_winners(botw_detail, sotw_detail, testdb=None):
         conflicts.append('No BOTW participants with recorded progress.')
     elif botw_winner['discord_user_id'] is None:
         conflicts.append(
-            f'BOTW winner `{botw_winner["rsn"]}` has no Discord link — link via `/wom link` before approving.'
+            f'BOTW winner `{botw_winner["rsn"]}` has no Discord link — have a mod run `/wom link`, '
+            'or ask the winner to run `/wom claim` themselves, before approving.'
         )
 
     if sotw_winner is None:
         conflicts.append('No SOTW participants with recorded progress.')
     elif sotw_winner['discord_user_id'] is None:
         conflicts.append(
-            f'SOTW winner `{sotw_winner["rsn"]}` has no Discord link — link via `/wom link` before approving.'
+            f'SOTW winner `{sotw_winner["rsn"]}` has no Discord link — have a mod run `/wom link`, '
+            'or ask the winner to run `/wom claim` themselves, before approving.'
         )
 
     return botw_winner, sotw_winner, conflicts
@@ -115,14 +117,16 @@ def resolve_winners_from_fallback(botw_parsed, sotw_parsed, botw_comp_id, sotw_c
         conflicts.append('BOTW winner could not be parsed from event-calendar fallback.')
     elif botw_winner['discord_user_id'] is None:
         conflicts.append(
-            f'BOTW winner `{botw_winner["rsn"]}` has no Discord link — link via `/wom link` before approving.'
+            f'BOTW winner `{botw_winner["rsn"]}` has no Discord link — have a mod run `/wom link`, '
+            'or ask the winner to run `/wom claim` themselves, before approving.'
         )
 
     if sotw_winner is None:
         conflicts.append('SOTW winner could not be parsed from event-calendar fallback.')
     elif sotw_winner['discord_user_id'] is None:
         conflicts.append(
-            f'SOTW winner `{sotw_winner["rsn"]}` has no Discord link — link via `/wom link` before approving.'
+            f'SOTW winner `{sotw_winner["rsn"]}` has no Discord link — have a mod run `/wom link`, '
+            'or ask the winner to run `/wom claim` themselves, before approving.'
         )
 
     conflicts.append('Winners sourced from event-calendar fallback (WOM API was unavailable) — verify before approving.')
