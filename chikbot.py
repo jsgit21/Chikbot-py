@@ -18,6 +18,7 @@ GM_CHANNEL_ID = int(os.getenv('GM_CHANNEL'))
 WEBHOOK_GRAVEYARD = int(os.getenv('WEBHOOK_GRAVEYARD'))
 CHIKBOT_ID = int(os.getenv('CHIKBOT_ID'))
 CHIKEN_TENDERS_GUILD = int(os.getenv('CHIKEN_TENDERS_GUILD'))
+GM_EMOJI = discord.PartialEmoji(name='gm', id=874033154313314414)
 
 dink_channels = ['ACHIEVEMENTS', 'BOSSING', 'DED', 'LEVELS', 'PETS', 'LOOT']
 dink_webhooks = {int(os.getenv(f'{c}_WEBHOOK')):c for c in dink_channels}
@@ -45,6 +46,10 @@ def get_random_emoji():
     return f'<{emoji.name}:{emoji.id}>'
 
 
+def get_random_emoji_v2() -> discord.Emoji:
+    return random.choice(chikbot.emojis)
+
+
 async def get_webhook_for_channel(channel, guild=CHIKEN_TENDERS_GUILD):
     webhook_id = int(os.getenv(f'{channel}_WEBHOOK_FWD'))
     guild_webhooks = await chikbot.get_guild(CHIKEN_TENDERS_GUILD).webhooks()
@@ -55,15 +60,16 @@ async def get_webhook_for_channel(channel, guild=CHIKEN_TENDERS_GUILD):
 async def random_emoji_reaction(message, max):
     send_value = random.randint(0, max)
     if send_value > max - 2:
-        reaction = get_random_emoji()
+        reaction = get_random_emoji_v2()
         await message.add_reaction(reaction)
 
 
 async def gm_reply(message):
     if message.channel.id != GM_CHANNEL_ID:
         return
-    if random.randint(1, 100) == 1:
-        await message.reply(f"GM {get_random_emoji()}")
+    if random.randint(1, 20) == 1:
+        random_emoji = get_random_emoji()
+        await message.reply(f"{GM_EMOJI} {random_emoji}")
 
 
 async def get_image_bytes(url):
