@@ -5,9 +5,51 @@ Sourced from wise-old-man/wise-old-man `server/src/utils/shared/metric.utils.ts`
 Only real skills and bosses are offered — WOM's other metric types (activities
 like clue scrolls, computed metrics like EHP/EHB) aren't valid BOTW/SOTW targets.
 `overall` is excluded from SOTW_METRICS; it's an aggregate, not a trainable skill.
+
+These dicts are a floor, not a ceiling: `refresh_live_metrics()` periodically
+pulls the current skill/boss slug set straight from a real player's WOM
+snapshot (new content shows up there the moment WOM supports it), so a new
+boss or skill needs no code change to become selectable. A slug without a
+curated display name here falls back to a title-cased version of the slug.
 """
 
 import discord
+
+from . import wom_api
+
+_live_skill_slugs = None
+_live_boss_slugs = None
+
+
+def _titleize(slug):
+    return slug.replace('_', ' ').title()
+
+
+def refresh_live_metrics(rsn):
+    """Refresh the live skill/boss slug cache from a real player's WOM snapshot.
+
+    Raises on a failed fetch; callers should catch and keep the previous cache
+    (or the static dicts, if no successful refresh has happened yet).
+    """
+    global _live_skill_slugs, _live_boss_slugs
+    player = wom_api.get_player(rsn)
+    data = player['latestSnapshot']['data']
+    _live_skill_slugs = set(data['skills']) - {'overall'}
+    _live_boss_slugs = set(data['bosses'])
+
+
+def all_sotw_metrics():
+    """slug -> display name for every currently valid SOTW metric."""
+    if _live_skill_slugs is None:
+        return dict(SOTW_METRICS)
+    return {slug: SOTW_METRICS.get(slug, _titleize(slug)) for slug in _live_skill_slugs}
+
+
+def all_botw_metrics():
+    """slug -> display name for every currently valid BOTW metric."""
+    if _live_boss_slugs is None:
+        return dict(BOTW_METRICS)
+    return {slug: BOTW_METRICS.get(slug, _titleize(slug)) for slug in _live_boss_slugs}
 
 SOTW_METRICS = {
     'attack': 'Attack',
@@ -111,8 +153,8 @@ BOTW_METRICS = {
 
 
 def display_name(comp_type, metric_slug):
-    """Return the vetted display name for a metric slug, or the raw slug if unknown."""
-    metrics = BOTW_METRICS if comp_type == 'botw' else SOTW_METRICS
+    """Return the display name for a metric slug (curated, or title-cased if unknown)."""
+    metrics = all_botw_metrics() if comp_type == 'botw' else all_sotw_metrics()
     return metrics.get(metric_slug, metric_slug)
 
 
@@ -128,8 +170,8 @@ def _matches(query, metrics):
 
 
 async def autocomplete_botw_metric(ctx: discord.AutocompleteContext):
-    return _matches(ctx.value, BOTW_METRICS)
+    return _matches(ctx.value, all_botw_metrics())
 
 
 async def autocomplete_sotw_metric(ctx: discord.AutocompleteContext):
-    return _matches(ctx.value, SOTW_METRICS)
+    return _matches(ctx.value, all_sotw_metrics())

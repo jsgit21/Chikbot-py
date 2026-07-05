@@ -20,6 +20,7 @@ class Competitions(commands.Cog):
         self.bot = bot
         self.MOD_CHANNEL_ID = int(os.getenv('MODERATOR_CHANNEL'))
         self.winner_detection.start()
+        self.refresh_metrics.start()
 
     @property
     def mod_channel(self):
@@ -49,6 +50,26 @@ class Competitions(commands.Cog):
         await self.bot.wait_until_ready()
 
     # -------------------------------------------------------------------------
+    # Live metric list refresh
+    # -------------------------------------------------------------------------
+
+    @tasks.loop(time=datetime.time(hour=13, minute=30, tzinfo=tz.ET))
+    async def refresh_metrics(self):
+        rsn = await asyncio.to_thread(comp_db.get_any_group_rsn)
+        if not rsn:
+            return
+        try:
+            await asyncio.to_thread(metrics.refresh_live_metrics, rsn)
+        except Exception as exc:
+            await self.mod_channel.send(
+                f'Metric list refresh failed, keeping the last known list: {exc}'
+            )
+
+    @refresh_metrics.before_loop
+    async def before_refresh_metrics(self):
+        await self.bot.wait_until_ready()
+
+    # -------------------------------------------------------------------------
     # /competition create
     # -------------------------------------------------------------------------
 
@@ -72,11 +93,11 @@ class Competitions(commands.Cog):
                          required=False) = None):
         await ctx.defer()
 
-        if botw_metric not in metrics.BOTW_METRICS:
-            await ctx.respond(f'`{botw_metric}` is not a vetted BOTW metric.', ephemeral=True)
+        if botw_metric not in metrics.all_botw_metrics():
+            await ctx.respond(f'`{botw_metric}` is not a valid BOTW metric.', ephemeral=True)
             return
-        if sotw_metric not in metrics.SOTW_METRICS:
-            await ctx.respond(f'`{sotw_metric}` is not a vetted SOTW metric.', ephemeral=True)
+        if sotw_metric not in metrics.all_sotw_metrics():
+            await ctx.respond(f'`{sotw_metric}` is not a valid SOTW metric.', ephemeral=True)
             return
 
         last_cycle = await asyncio.to_thread(comp_db.get_last_cycle)

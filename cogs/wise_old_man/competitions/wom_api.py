@@ -1,4 +1,5 @@
 import os
+from urllib.parse import quote
 
 from ..shared import wom_http
 
@@ -6,6 +7,11 @@ from ..shared import wom_http
 def list_group_competitions():
     group_id = os.getenv('WOM_GROUPID')
     return wom_http.get(f'/groups/{group_id}/competitions')
+
+
+def get_player(rsn):
+    """Fetch a player's full details, including latestSnapshot.data (skills/bosses/activities)."""
+    return wom_http.get(f'/players/{quote(rsn)}')
 
 
 def get_competition(competition_id):

@@ -109,6 +109,15 @@ def get_competitions_for_cycle(cycle_id, testdb=None):
     return cursor.fetchall()
 
 
+def get_any_group_rsn(testdb=None):
+    """Return one current RSN from wom_group, or None if the group is empty."""
+    db = testdb if testdb else database.create_connection()
+    cursor = db.cursor()
+    cursor.execute('select rsn from wom_group limit 1')
+    row = cursor.fetchone()
+    return row[0] if row else None
+
+
 def get_rsn_for_wom_id(wom_user_id, testdb=None):
     """Return the current RSN from wom_group for a WOM player id, or None."""
     db = testdb if testdb else database.create_connection()
