@@ -1,10 +1,12 @@
 import os
+import random
 import datetime
 import discord
 from discord.ext import tasks, commands
 
 from .rolecheck import get_misranked_users, bulk_update_outdated_users, get_user_roles, get_members_with_ranks
 from . import wom_utilities as utils
+from .identity import db as identity_db
 import database.db_methods as database
 
 class Wise_Old_Man(commands.Cog):
@@ -116,6 +118,19 @@ class Wise_Old_Man(commands.Cog):
             return msg
         return None
 
+    def get_unlinked_backfill_nudge(self):
+        # Occasional, capped nudge so backfill chips away without spamming the mod channel daily
+        if random.randint(1, 3) != 1:
+            return None
+
+        unlinked = identity_db.get_unlinked_members()
+        if not unlinked:
+            return None
+
+        sample = random.sample(unlinked, min(3, len(unlinked)))
+        names = ', '.join(member['rsn'] for member in sample)
+        return f'-# Still unlinked: {names}. Use `/wom link` to connect them to a Discord member.'
+
     @tasks.loop(time=datetime.time(hour=13, minute=00))
     async def update_wom_group(self):
         sync_message = self.sync_wom_group_to_db()
@@ -124,6 +139,10 @@ class Wise_Old_Man(commands.Cog):
 
         message = bulk_update_outdated_users()
         await self.dev_channel.send(message)
+
+        nudge = self.get_unlinked_backfill_nudge()
+        if nudge:
+            await self.mod_channel.send(nudge)
 
 
     @update_wom_group.before_loop

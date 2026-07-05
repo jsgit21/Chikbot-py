@@ -188,6 +188,7 @@ class Competitions(commands.Cog):
 
         botw_summary, sotw_summary = wom_api.find_ended_competition_pair(competitions)
         if not botw_summary or not sotw_summary:
+            await self._handle_no_active_cycle(mod_channel)
             return
 
         # Skip if this BOTW competition is already in our DB with results posted.
@@ -241,6 +242,38 @@ class Competitions(commands.Cog):
             '-# Reminder: collect picks from both winners before next Sunday '
             '(BOTW winner picks next SOTW; SOTW winner picks next BOTW).'
         )
+
+    async def _handle_no_active_cycle(self, mod_channel):
+        """Nudge mods on a Monday with nothing ended and nothing queued.
+
+        On-cadence (within the normal one-break-week gap) gets a plain prompt
+        to run /competition create; anything longer is treated as a deliberate
+        pause and gets a softer "been X weeks" reminder instead.
+        """
+        planned = await asyncio.to_thread(comp_db.get_planned_cycles)
+        if planned:
+            return
+
+        last_cycle = await asyncio.to_thread(comp_db.get_last_cycle)
+        if not last_cycle:
+            return
+
+        weeks_since = scheduling.weeks_since_last_cycle(
+            last_cycle['ends_at'], datetime.datetime.now(tz.ET).date()
+        )
+
+        if weeks_since <= 2:
+            await mod_channel.send(
+                "-# It's Monday and no BOTW/SOTW competitions are running or queued. "
+                "Run `/competition create` to keep the cadence going."
+            )
+        else:
+            await mod_channel.send(
+                f"-# BOTW/SOTW has been on break for {weeks_since} weeks. Reply with picks "
+                "and I'll queue up the next cycle whenever you're ready "
+                "(`/competition create` targets the next available Saturday; "
+                "raise `weeks_out` to push it further)."
+            )
 
     async def _resolve_winners(self, botw_summary, sotw_summary, mod_channel):
         """Fetch competition details and resolve winners.
