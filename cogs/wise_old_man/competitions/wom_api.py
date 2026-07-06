@@ -1,3 +1,4 @@
+import datetime
 import os
 from urllib.parse import quote
 
@@ -18,20 +19,43 @@ def get_competition(competition_id):
     return wom_http.get(f'/competitions/{competition_id}')
 
 
-def find_ended_competition_pair(competitions):
+def _parse_ends_at(competition):
+    raw = competition.get('endsAt')
+    if not raw:
+        return None
+    try:
+        return datetime.datetime.fromisoformat(raw.replace('Z', '+00:00'))
+    except ValueError:
+        return None
+
+
+def find_ended_competition_pair(competitions, now=None):
     """Return (botw_summary, sotw_summary) from a list of group competition summaries.
 
-    Searches the most recently ended competitions matching our title patterns.
-    Returns (None, None) if the pair cannot be found.
+    The WOM group-competitions list has no 'status' field, so "ended" is
+    derived from endsAt vs now rather than filtered from the API response.
+    Searches the most recently ended BOTW, then the SOTW sharing its exact
+    start/end window (both events in a cycle are created with identical
+    startsAt/endsAt), so a stray old finished competition can't get paired with
+    a current one. Returns (None, None) or (botw, None) if no matching pair
+    is found.
     """
-    ended = [c for c in competitions if c.get('status') == 'finished']
-    ended.sort(key=lambda c: c['endsAt'], reverse=True)
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    ended = [c for c in competitions if (ea := _parse_ends_at(c)) and ea < now]
+    ended.sort(key=lambda c: c.get('endsAt', ''), reverse=True)
 
     botw = next(
-        (c for c in ended if 'boss of the week' in c['title'].lower()), None
+        (c for c in ended if 'boss of the week' in c.get('title', '').lower()), None
     )
+    if botw is None:
+        return None, None
+
     sotw = next(
-        (c for c in ended if 'skill of the week' in c['title'].lower()), None
+        (c for c in ended
+         if 'skill of the week' in c.get('title', '').lower()
+         and c.get('startsAt') == botw.get('startsAt')
+         and c.get('endsAt') == botw.get('endsAt')),
+        None,
     )
     return botw, sotw
 

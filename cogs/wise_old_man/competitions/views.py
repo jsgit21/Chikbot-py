@@ -6,6 +6,7 @@ import discord
 from . import db as comp_db
 from . import announcements, metrics, roles, wom_api
 from ..identity import db as identity_db
+from ..shared import checks
 from .scheduling import to_wom_iso
 
 
@@ -29,6 +30,15 @@ class ApproveButton(discord.ui.Button):
             return
 
         cycle = pending[0]
+
+        claimed = await asyncio.to_thread(comp_db.claim_cycle_for_announcing, cycle['id'])
+        if not claimed:
+            await interaction.followup.send(
+                'This cycle is already being processed or was already approved.',
+                ephemeral=True,
+            )
+            return
+
         comps = await asyncio.to_thread(comp_db.get_competitions_for_cycle, cycle['id'])
         botw_row = next((c for c in comps if c['type'] == 'botw'), None)
         sotw_row = next((c for c in comps if c['type'] == 'sotw'), None)
@@ -70,12 +80,22 @@ class ApproveButton(discord.ui.Button):
             return
 
         ann_channel = interaction.client.get_channel(int(ann_channel_id))
+        if ann_channel is None:
+            await interaction.followup.send(
+                f'Announcements channel {ann_channel_id} not found — check ANNOUNCEMENTS_CHANNEL.',
+                ephemeral=True,
+            )
+            return
+
         await ann_channel.send(text)
 
         guild = interaction.guild
         botw_did = botw_winner['discord_user_id'] if botw_winner else None
         sotw_did = sotw_winner['discord_user_id'] if sotw_winner else None
-        role_warnings = await roles.swap_winner_roles(guild, botw_did, sotw_did)
+        try:
+            role_warnings = await roles.swap_winner_roles(guild, botw_did, sotw_did)
+        except Exception as exc:
+            role_warnings = [f'Role swap failed: {exc}']
 
         await asyncio.to_thread(comp_db.mark_results_posted, botw_row['competition_id'])
         await asyncio.to_thread(comp_db.mark_results_posted, sotw_row['competition_id'])
@@ -101,7 +121,11 @@ class DismissButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         pending = await asyncio.to_thread(comp_db.get_pending_cycles)
         if pending:
-            await asyncio.to_thread(comp_db.set_cycle_status, pending[0]['id'], 'announced')
+            cycle_id = pending[0]['id']
+            comps = await asyncio.to_thread(comp_db.get_competitions_for_cycle, cycle_id)
+            for comp in comps:
+                await asyncio.to_thread(comp_db.mark_results_posted, comp['competition_id'])
+            await asyncio.to_thread(comp_db.set_cycle_status, cycle_id, 'announced')
 
         self.view.disable_all_items()
         await interaction.message.edit(view=self.view)
@@ -121,6 +145,13 @@ class ResultsApprovalView(discord.ui.View):
         self.add_item(ApproveButton())
         self.add_item(DismissButton())
 
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not checks.moderator_interaction(interaction):
+            await interaction.response.send_message(
+                'Moderators only, in the mod channel.', ephemeral=True)
+            return False
+        return True
+
 
 # -----------------------------------------------------------------------------
 # /competition create: preview -> confirm -> create on WOM
@@ -134,43 +165,51 @@ class ConfirmCreateButton(discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         payload = self.view.payload
 
+        cycle_id = payload['cycle_id']
+        if cycle_id is None:
+            cycle_id = await asyncio.to_thread(
+                comp_db.insert_cycle, payload['starts_at'], payload['ends_at'], 'planned'
+            )
+
+        async def _ensure_side(side, comp_type):
+            """Create side on WOM and persist it, unless a resumed cycle already has it."""
+            if side['existing_competition_id']:
+                return None
+
+            resp = await asyncio.to_thread(
+                wom_api.create_competition,
+                side['title'], side['metric'],
+                to_wom_iso(payload['starts_at']), to_wom_iso(payload['ends_at']),
+            )
+            await asyncio.to_thread(
+                comp_db.upsert_competition,
+                resp['competition']['id'], cycle_id, comp_type,
+                side['metric'], side['title'],
+                payload['starts_at'], payload['ends_at'],
+                resp['verificationCode'], side['picker_user_id'],
+            )
+            return resp
+
         try:
-            botw_resp = await asyncio.to_thread(
-                wom_api.create_competition,
-                payload['botw']['title'], payload['botw']['metric'],
-                to_wom_iso(payload['starts_at']), to_wom_iso(payload['ends_at']),
-            )
-            sotw_resp = await asyncio.to_thread(
-                wom_api.create_competition,
-                payload['sotw']['title'], payload['sotw']['metric'],
-                to_wom_iso(payload['starts_at']), to_wom_iso(payload['ends_at']),
-            )
+            await _ensure_side(payload['botw'], 'botw')
         except Exception as exc:
             await interaction.followup.send(
-                f'Failed to create competitions on WOM: {exc}\n'
-                'Check the WOM group manually before retrying — one competition may have '
-                'already been created.',
+                f'Failed to create the BOTW competition on WOM: {exc}\n'
+                'Nothing was created — rerun `/competition create` to retry.',
                 ephemeral=True,
             )
             return
 
-        cycle_id = await asyncio.to_thread(
-            comp_db.insert_cycle, payload['starts_at'], payload['ends_at'], 'planned'
-        )
-        await asyncio.to_thread(
-            comp_db.upsert_competition,
-            botw_resp['competition']['id'], cycle_id, 'botw',
-            payload['botw']['metric'], payload['botw']['title'],
-            payload['starts_at'], payload['ends_at'],
-            botw_resp['verificationCode'], payload['botw']['picker_user_id'],
-        )
-        await asyncio.to_thread(
-            comp_db.upsert_competition,
-            sotw_resp['competition']['id'], cycle_id, 'sotw',
-            payload['sotw']['metric'], payload['sotw']['title'],
-            payload['starts_at'], payload['ends_at'],
-            sotw_resp['verificationCode'], payload['sotw']['picker_user_id'],
-        )
+        try:
+            await _ensure_side(payload['sotw'], 'sotw')
+        except Exception as exc:
+            await interaction.followup.send(
+                f'BOTW was created on WOM, but the SOTW competition failed: {exc}\n'
+                'Rerun `/competition create` with the same options to resume — '
+                'BOTW will not be duplicated.',
+                ephemeral=True,
+            )
+            return
 
         self.view.disable_all_items()
         await interaction.message.edit(view=self.view)
@@ -183,7 +222,15 @@ class ConfirmCreateButton(discord.ui.Button):
             f'{kickoff_text}\n\n'
             '-# Click **Approve & Post** to publish to the announcements channel.'
         )
-        mod_channel = interaction.client.get_channel(int(os.getenv('MODERATOR_CHANNEL')))
+        mod_channel_id = checks.moderator_channel_id()
+        mod_channel = interaction.client.get_channel(mod_channel_id)
+        if mod_channel is None:
+            await interaction.followup.send(
+                f'Moderator channel {mod_channel_id} not found — check MODERATOR_CHANNEL. '
+                'Both competitions were created on WOM; the kickoff post still needs to be sent.',
+                ephemeral=True,
+            )
+            return
         await mod_channel.send(draft, view=KickoffApprovalView())
 
         await interaction.followup.send(
@@ -223,6 +270,13 @@ class ConfirmCreateView(discord.ui.View):
         self.add_item(ConfirmCreateButton())
         self.add_item(CancelCreateButton())
 
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not checks.moderator_interaction(interaction):
+            await interaction.response.send_message(
+                'Moderators only, in the mod channel.', ephemeral=True)
+            return False
+        return True
+
 
 # -----------------------------------------------------------------------------
 # Kickoff announcement approval gate
@@ -252,6 +306,15 @@ class ApproveKickoffButton(discord.ui.Button):
             return
 
         cycle = planned[0]
+
+        claimed = await asyncio.to_thread(comp_db.claim_cycle_for_publishing, cycle['id'])
+        if not claimed:
+            await interaction.followup.send(
+                'This cycle is already being processed or was already approved.',
+                ephemeral=True,
+            )
+            return
+
         comps = await asyncio.to_thread(comp_db.get_competitions_for_cycle, cycle['id'])
         botw_row = next((c for c in comps if c['type'] == 'botw'), None)
         sotw_row = next((c for c in comps if c['type'] == 'sotw'), None)
@@ -283,6 +346,13 @@ class ApproveKickoffButton(discord.ui.Button):
             return
 
         ann_channel = interaction.client.get_channel(int(ann_channel_id))
+        if ann_channel is None:
+            await interaction.followup.send(
+                f'Announcements channel {ann_channel_id} not found — check ANNOUNCEMENTS_CHANNEL.',
+                ephemeral=True,
+            )
+            return
+
         await ann_channel.send(text)
 
         await asyncio.to_thread(comp_db.set_cycle_status, cycle['id'], 'active')
@@ -321,3 +391,10 @@ class KickoffApprovalView(discord.ui.View):
         super().__init__(timeout=None)
         self.add_item(ApproveKickoffButton())
         self.add_item(DismissKickoffButton())
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not checks.moderator_interaction(interaction):
+            await interaction.response.send_message(
+                'Moderators only, in the mod channel.', ephemeral=True)
+            return False
+        return True

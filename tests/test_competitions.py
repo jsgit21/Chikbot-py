@@ -10,7 +10,7 @@ import unittest.mock as mock
 
 import pytest
 
-from cogs.wise_old_man.competitions import announcements, event_calendar, winners
+from cogs.wise_old_man.competitions import announcements, event_calendar, wom_api, winners
 
 
 # ---------------------------------------------------------------------------
@@ -276,3 +276,58 @@ def test_build_kickoff_post_includes_titles_and_pickers():
     assert '@peppy' in text
     assert 'Sat 7/4 10:00 AM' in text
     assert 'Mon 7/6 12:00 AM ET' in text
+
+
+# ---------------------------------------------------------------------------
+# wom_api.find_ended_competition_pair
+# ---------------------------------------------------------------------------
+
+_NOW = datetime.datetime(2026, 7, 6, 12, 0, tzinfo=datetime.timezone.utc)
+
+
+def _make_comp_summary(comp_id, title, starts_at, ends_at):
+    return {'id': comp_id, 'title': title, 'startsAt': starts_at, 'endsAt': ends_at}
+
+
+def test_find_ended_competition_pair_ignores_stray_old_sotw():
+    current_window = ('2026-06-27T14:00:00.000Z', '2026-07-04T14:00:00.000Z')
+    old_window = ('2026-05-01T14:00:00.000Z', '2026-05-08T14:00:00.000Z')
+
+    stray_sotw = _make_comp_summary(1, 'Runecrafting - Skill of the Week', *old_window)
+    current_botw = _make_comp_summary(2, 'Vorkath - Boss of the Week', *current_window)
+    current_sotw = _make_comp_summary(3, 'Fishing - Skill of the Week', *current_window)
+
+    botw, sotw = wom_api.find_ended_competition_pair([stray_sotw, current_botw, current_sotw], now=_NOW)
+
+    assert botw['id'] == 2
+    assert sotw['id'] == 3
+
+
+def test_find_ended_competition_pair_missing_keys_does_not_crash():
+    incomplete = {}  # no title, endsAt, startsAt
+    botw, sotw = wom_api.find_ended_competition_pair([incomplete], now=_NOW)
+
+    assert botw is None
+    assert sotw is None
+
+
+def test_find_ended_competition_pair_ignores_not_yet_ended():
+    not_ended = _make_comp_summary(
+        1, 'Vorkath - Boss of the Week', '2026-07-04T14:00:00.000Z', '2026-07-13T04:00:00.000Z'
+    )
+    botw, sotw = wom_api.find_ended_competition_pair([not_ended], now=_NOW)
+
+    assert botw is None
+    assert sotw is None
+
+
+def test_find_ended_competition_pair_no_matching_sotw_window():
+    botw = _make_comp_summary(1, 'Vorkath - Boss of the Week',
+                               '2026-06-27T14:00:00.000Z', '2026-07-04T14:00:00.000Z')
+    mismatched_sotw = _make_comp_summary(2, 'Fishing - Skill of the Week',
+                                          '2026-05-01T14:00:00.000Z', '2026-05-08T14:00:00.000Z')
+
+    result_botw, result_sotw = wom_api.find_ended_competition_pair([botw, mismatched_sotw], now=_NOW)
+
+    assert result_botw['id'] == 1
+    assert result_sotw is None

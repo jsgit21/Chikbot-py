@@ -7,26 +7,21 @@ from discord.ext import tasks, commands
 from .rolecheck import get_misranked_users, bulk_update_outdated_users, get_user_roles, get_members_with_ranks
 from . import wom_utilities as utils
 from .identity import db as identity_db
+from .shared import checks
 import database.db_methods as database
 
 class Wise_Old_Man(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        self.MOD_CHANNEL_ID = int(os.getenv('MODERATOR_CHANNEL'))
+        self.MOD_CHANNEL_ID = checks.moderator_channel_id()
         self.DEV_CHANNEL_ID = int(os.getenv('PERSONAL_DEV_CHANNEL'))
         self.rolecheck.start()
         self.update_wom_group.start()
 
 
-    # Checks
-    async def is_moderator(ctx):
-        author_roles = ctx.author.roles
-        mod_role = discord.utils.get(author_roles, name='Moderator', id=360455451852406797)
-        return mod_role is not None
-
     # Commands
-    @commands.check(is_moderator)
+    @commands.check(checks.is_moderator)
     @discord.slash_command(description='''Sync the whitelist that controls access to Dink Webhooks.''')
     async def sync_wom_whitelist(self, ctx):
         all_members = get_members_with_ranks()

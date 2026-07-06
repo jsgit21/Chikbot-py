@@ -1,6 +1,7 @@
 import pymysql
 
 import database.db_methods as database
+from ..shared.rsn import normalize_rsn
 
 
 def upsert_competition(comp_id, cycle_id, comp_type, metric, title,
@@ -72,6 +73,26 @@ def set_cycle_status(cycle_id, status, testdb=None):
     )
 
 
+def claim_cycle_for_announcing(cycle_id, testdb=None):
+    """Atomically move a cycle from 'ended' to 'announcing'. Returns rowcount (0 if already claimed)."""
+    db = testdb if testdb else database.create_connection()
+    cursor = db.cursor()
+    cursor.execute(
+        "update competition_cycle set status = 'announcing' "
+        "where id = %s and status = 'ended'", (cycle_id,))
+    return cursor.rowcount
+
+
+def claim_cycle_for_publishing(cycle_id, testdb=None):
+    """Atomically move a cycle from 'planned' to 'publishing'. Returns rowcount (0 if already claimed)."""
+    db = testdb if testdb else database.create_connection()
+    cursor = db.cursor()
+    cursor.execute(
+        "update competition_cycle set status = 'publishing' "
+        "where id = %s and status = 'planned'", (cycle_id,))
+    return cursor.rowcount
+
+
 def get_pending_cycles(testdb=None):
     """Return cycles that have ended but not yet been announced."""
     db = testdb if testdb else database.create_connection()
@@ -90,6 +111,31 @@ def get_planned_cycles(testdb=None):
         "select * from competition_cycle where status = 'planned' order by starts_at desc"
     )
     return cursor.fetchall()
+
+
+def get_active_cycles(testdb=None):
+    """Return cycles currently running (kicked off, not yet ended)."""
+    db = testdb if testdb else database.create_connection()
+    cursor = db.cursor(pymysql.cursors.DictCursor)
+    cursor.execute(
+        "select * from competition_cycle where status = 'active' order by ends_at desc"
+    )
+    return cursor.fetchall()
+
+
+def get_planned_cycle_for_window(starts_at, ends_at, testdb=None):
+    """Return the 'planned' cycle for an exact starts_at/ends_at window, or None.
+
+    Lets /competition create detect a cycle stuck mid-creation (e.g. BOTW POSTed
+    to WOM but SOTW failed) and resume it instead of duplicating the BOTW side.
+    """
+    db = testdb if testdb else database.create_connection()
+    cursor = db.cursor(pymysql.cursors.DictCursor)
+    cursor.execute(
+        "select * from competition_cycle where status = 'planned' and starts_at = %s and ends_at = %s",
+        (starts_at, ends_at),
+    )
+    return cursor.fetchone()
 
 
 def get_last_cycle(testdb=None):
@@ -128,9 +174,9 @@ def get_rsn_for_wom_id(wom_user_id, testdb=None):
 
 
 def get_wom_id_for_rsn(rsn, testdb=None):
-    """Return the wom_user_id from wom_group for an RSN (lowercased), or None."""
+    """Return the wom_user_id from wom_group for an RSN (normalized), or None."""
     db = testdb if testdb else database.create_connection()
     cursor = db.cursor()
-    cursor.execute('select wom_user_id from wom_group where rsn = %s', (rsn.lower(),))
+    cursor.execute('select wom_user_id from wom_group where rsn = %s', (normalize_rsn(rsn),))
     row = cursor.fetchone()
     return row[0] if row else None

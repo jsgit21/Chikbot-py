@@ -18,7 +18,7 @@ class Competitions(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        self.MOD_CHANNEL_ID = int(os.getenv('MODERATOR_CHANNEL'))
+        self.MOD_CHANNEL_ID = checks.moderator_channel_id()
         self.winner_detection.start()
         self.refresh_metrics.start()
 
@@ -104,6 +104,17 @@ class Competitions(commands.Cog):
         after = last_cycle['ends_at'] if last_cycle else datetime.datetime.now(tz.ET).date()
         starts_at, ends_at = scheduling.next_cycle_window(after, weeks_out=weeks_out)
 
+        existing_cycle = await asyncio.to_thread(
+            comp_db.get_planned_cycle_for_window, starts_at, ends_at
+        )
+        existing_comps = []
+        if existing_cycle:
+            existing_comps = await asyncio.to_thread(
+                comp_db.get_competitions_for_cycle, existing_cycle['id']
+            )
+        existing_botw = next((c for c in existing_comps if c['type'] == 'botw'), None)
+        existing_sotw = next((c for c in existing_comps if c['type'] == 'sotw'), None)
+
         botw_picker_id, botw_picker_alias = await self._resolve_picker(
             ctx.guild, botw_picker, last_cycle, 'botw'
         )
@@ -113,32 +124,51 @@ class Competitions(commands.Cog):
 
         botw_display = metrics.display_name('botw', botw_metric)
         sotw_display = metrics.display_name('sotw', sotw_metric)
-        botw_title = f"{botw_display} - Boss of the Week [{botw_picker_alias}'s pick]"
-        sotw_title = f"{sotw_display} - Skill of the Week [{sotw_picker_alias}'s pick]"
+        botw_title = existing_botw['title'] if existing_botw else (
+            f"{botw_display} - Boss of the Week [{botw_picker_alias}'s pick]"
+        )
+        sotw_title = existing_sotw['title'] if existing_sotw else (
+            f"{sotw_display} - Skill of the Week [{sotw_picker_alias}'s pick]"
+        )
 
         payload = {
             'starts_at': starts_at,
             'ends_at': ends_at,
+            'cycle_id': existing_cycle['id'] if existing_cycle else None,
             'botw': {
-                'metric': botw_metric, 'metric_display': botw_display, 'title': botw_title,
-                'picker_user_id': botw_picker_id,
+                'metric': existing_botw['metric'] if existing_botw else botw_metric,
+                'metric_display': botw_display, 'title': botw_title,
+                'picker_user_id': existing_botw['picker_user_id'] if existing_botw else botw_picker_id,
                 'picker_text': f'<@{botw_picker_id}>' if botw_picker_id else botw_picker_alias,
+                'existing_competition_id': existing_botw['competition_id'] if existing_botw else None,
+                'existing_verification_code': existing_botw['verification_code'] if existing_botw else None,
             },
             'sotw': {
-                'metric': sotw_metric, 'metric_display': sotw_display, 'title': sotw_title,
-                'picker_user_id': sotw_picker_id,
+                'metric': existing_sotw['metric'] if existing_sotw else sotw_metric,
+                'metric_display': sotw_display, 'title': sotw_title,
+                'picker_user_id': existing_sotw['picker_user_id'] if existing_sotw else sotw_picker_id,
                 'picker_text': f'<@{sotw_picker_id}>' if sotw_picker_id else sotw_picker_alias,
+                'existing_competition_id': existing_sotw['competition_id'] if existing_sotw else None,
+                'existing_verification_code': existing_sotw['verification_code'] if existing_sotw else None,
             },
         }
 
         start_et = starts_at.replace(tzinfo=datetime.timezone.utc).astimezone(tz.ET)
         end_et = ends_at.replace(tzinfo=datetime.timezone.utc).astimezone(tz.ET)
+        resuming_note = ''
+        if existing_cycle:
+            done = [t for t, c in (('BOTW', existing_botw), ('SOTW', existing_sotw)) if c]
+            resuming_note = (
+                f'\n-# Resuming an existing cycle for this window — {", ".join(done)} '
+                'already created on WOM and will not be duplicated.\n'
+            )
         preview = (
             '**Preview — /competition create**\n\n'
             f'**BOTW** — {botw_title}\n'
             f'**SOTW** — {sotw_title}\n\n'
             f'Runs **{start_et.strftime("%a %Y-%m-%d %H:%M")}** → '
-            f'**{end_et.strftime("%a %Y-%m-%d %H:%M")} ET**\n\n'
+            f'**{end_et.strftime("%a %Y-%m-%d %H:%M")} ET**\n'
+            f'{resuming_note}\n'
             '-# Click **Confirm & Create** to create both competitions on WOM.'
         )
         await ctx.respond(preview, view=ConfirmCreateView(payload))
@@ -273,6 +303,10 @@ class Competitions(commands.Cog):
         """
         planned = await asyncio.to_thread(comp_db.get_planned_cycles)
         if planned:
+            return
+
+        active = await asyncio.to_thread(comp_db.get_active_cycles)
+        if active:
             return
 
         last_cycle = await asyncio.to_thread(comp_db.get_last_cycle)

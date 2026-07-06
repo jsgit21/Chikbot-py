@@ -1,11 +1,7 @@
 import pymysql
 
 import database.db_methods as database
-
-
-def _normalize_rsn(rsn):
-    # wom_group stores display names lowercased, and OSRS dedupes hyphens vs spaces.
-    return rsn.replace('-', ' ').lower()
+from ..shared.rsn import normalize_rsn as _normalize_rsn
 
 
 def link_rsn(rsn, user_id, testdb=None):
