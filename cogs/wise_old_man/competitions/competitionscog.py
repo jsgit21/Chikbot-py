@@ -242,9 +242,11 @@ class Competitions(commands.Cog):
             await self._handle_no_active_cycle(mod_channel)
             return
 
-        # Skip if this BOTW competition is already in our DB with results posted.
+        # Skip if this BOTW competition is already in our DB with results posted —
+        # but still nudge if nothing new has been queued for the next cycle.
         existing = await asyncio.to_thread(comp_db.get_competition_by_id, botw_summary['id'])
         if existing and existing['results_posted']:
+            await self._handle_no_active_cycle(mod_channel)
             return
 
         botw_winner, sotw_winner, conflicts = await self._resolve_winners(

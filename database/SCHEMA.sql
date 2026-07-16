@@ -58,7 +58,7 @@ create table Discord.competition_cycle (
   id int unsigned primary key auto_increment,
   starts_at datetime not null,
   ends_at datetime not null,
-  status enum('planned', 'active', 'ended', 'announced') default 'planned',
+  status enum('planned', 'publishing', 'active', 'ended', 'announcing', 'announced', 'deferred') default 'planned',
   created_at timestamp default current_timestamp
 );
 

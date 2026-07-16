@@ -19,13 +19,12 @@ class ApproveButton(discord.ui.Button):
         )
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer()
 
         pending = await asyncio.to_thread(comp_db.get_pending_cycles)
         if not pending:
             await interaction.followup.send(
                 'No pending cycle found — it may have already been approved or dismissed.',
-                ephemeral=True,
             )
             return
 
@@ -35,7 +34,6 @@ class ApproveButton(discord.ui.Button):
         if not claimed:
             await interaction.followup.send(
                 'This cycle is already being processed or was already approved.',
-                ephemeral=True,
             )
             return
 
@@ -46,7 +44,6 @@ class ApproveButton(discord.ui.Button):
         if not botw_row or not sotw_row:
             await interaction.followup.send(
                 'Competition data is incomplete in the DB. Cannot approve.',
-                ephemeral=True,
             )
             return
 
@@ -75,7 +72,6 @@ class ApproveButton(discord.ui.Button):
         if not ann_channel_id:
             await interaction.followup.send(
                 'ANNOUNCEMENTS_CHANNEL is not set. Set the env var and redeploy.',
-                ephemeral=True,
             )
             return
 
@@ -83,7 +79,6 @@ class ApproveButton(discord.ui.Button):
         if ann_channel is None:
             await interaction.followup.send(
                 f'Announcements channel {ann_channel_id} not found — check ANNOUNCEMENTS_CHANNEL.',
-                ephemeral=True,
             )
             return
 
@@ -107,7 +102,7 @@ class ApproveButton(discord.ui.Button):
         reply = 'Results posted and roles swapped.'
         if role_warnings:
             reply += '\n\n**Role warnings:**\n' + '\n'.join(f'- {w}' for w in role_warnings)
-        await interaction.followup.send(reply, ephemeral=True)
+        await interaction.followup.send(reply)
 
 
 class DismissButton(discord.ui.Button):
@@ -120,16 +115,28 @@ class DismissButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         pending = await asyncio.to_thread(comp_db.get_pending_cycles)
-        if pending:
-            cycle_id = pending[0]['id']
-            comps = await asyncio.to_thread(comp_db.get_competitions_for_cycle, cycle_id)
-            for comp in comps:
-                await asyncio.to_thread(comp_db.mark_results_posted, comp['competition_id'])
-            await asyncio.to_thread(comp_db.set_cycle_status, cycle_id, 'announced')
+        if not pending:
+            await interaction.response.send_message(
+                'No pending cycle found — it may have already been approved or dismissed.'
+            )
+            return
+
+        cycle_id = pending[0]['id']
+        claimed = await asyncio.to_thread(comp_db.claim_cycle_for_announcing, cycle_id)
+        if not claimed:
+            await interaction.response.send_message(
+                'This cycle is already being processed or was already approved.'
+            )
+            return
+
+        comps = await asyncio.to_thread(comp_db.get_competitions_for_cycle, cycle_id)
+        for comp in comps:
+            await asyncio.to_thread(comp_db.mark_results_posted, comp['competition_id'])
+        await asyncio.to_thread(comp_db.set_cycle_status, cycle_id, 'deferred')
 
         self.view.disable_all_items()
         await interaction.message.edit(view=self.view)
-        await interaction.response.send_message('Dismissed.', ephemeral=True)
+        await interaction.response.send_message('Dismissed.')
 
 
 class ResultsApprovalView(discord.ui.View):
@@ -295,13 +302,12 @@ class ApproveKickoffButton(discord.ui.Button):
         )
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer()
 
         planned = await asyncio.to_thread(comp_db.get_planned_cycles)
         if not planned:
             await interaction.followup.send(
                 'No pending kickoff found — it may have already been approved or dismissed.',
-                ephemeral=True,
             )
             return
 
@@ -311,7 +317,6 @@ class ApproveKickoffButton(discord.ui.Button):
         if not claimed:
             await interaction.followup.send(
                 'This cycle is already being processed or was already approved.',
-                ephemeral=True,
             )
             return
 
@@ -322,7 +327,6 @@ class ApproveKickoffButton(discord.ui.Button):
         if not botw_row or not sotw_row:
             await interaction.followup.send(
                 'Competition data is incomplete in the DB. Cannot approve.',
-                ephemeral=True,
             )
             return
 
@@ -341,7 +345,6 @@ class ApproveKickoffButton(discord.ui.Button):
         if not ann_channel_id:
             await interaction.followup.send(
                 'ANNOUNCEMENTS_CHANNEL is not set. Set the env var and redeploy.',
-                ephemeral=True,
             )
             return
 
@@ -349,7 +352,6 @@ class ApproveKickoffButton(discord.ui.Button):
         if ann_channel is None:
             await interaction.followup.send(
                 f'Announcements channel {ann_channel_id} not found — check ANNOUNCEMENTS_CHANNEL.',
-                ephemeral=True,
             )
             return
 
@@ -359,7 +361,7 @@ class ApproveKickoffButton(discord.ui.Button):
 
         self.view.disable_all_items()
         await interaction.message.edit(view=self.view)
-        await interaction.followup.send('Kickoff post published.', ephemeral=True)
+        await interaction.followup.send('Kickoff post published.')
 
 
 class DismissKickoffButton(discord.ui.Button):
@@ -372,12 +374,25 @@ class DismissKickoffButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         planned = await asyncio.to_thread(comp_db.get_planned_cycles)
-        if planned:
-            await asyncio.to_thread(comp_db.set_cycle_status, planned[0]['id'], 'active')
+        if not planned:
+            await interaction.response.send_message(
+                'No pending kickoff found — it may have already been approved or dismissed.'
+            )
+            return
+
+        cycle_id = planned[0]['id']
+        claimed = await asyncio.to_thread(comp_db.claim_cycle_for_publishing, cycle_id)
+        if not claimed:
+            await interaction.response.send_message(
+                'This cycle is already being processed or was already approved.'
+            )
+            return
+
+        await asyncio.to_thread(comp_db.set_cycle_status, cycle_id, 'active')
 
         self.view.disable_all_items()
         await interaction.message.edit(view=self.view)
-        await interaction.response.send_message('Dismissed.', ephemeral=True)
+        await interaction.response.send_message('Dismissed.')
 
 
 class KickoffApprovalView(discord.ui.View):
