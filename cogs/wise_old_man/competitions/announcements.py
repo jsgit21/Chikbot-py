@@ -1,6 +1,7 @@
 import datetime
 
 from ..shared import tz
+from . import types
 
 
 def _mention(winner):
@@ -15,37 +16,28 @@ def _mention(winner):
 def _gained_label(comp_type, gained):
     if gained is None:
         return 'unknown'
-    if comp_type == 'botw':
-        return f'{gained:,} KC'
-    return f'{gained:,} XP'
+    return f'{gained:,} {comp_type.gained_unit}'
 
 
-def build_results_post(botw_winner, sotw_winner):
-    """Return the text of the competition results announcement.
+def build_result_post(comp_type, winner):
+    """Return the text of a standalone competition results announcement.
 
-    botw_winner / sotw_winner: dicts from winners.resolve_winner(), or None.
-    Linked winners are @mentioned; unlinked winners are shown as plain @rsn.
+    winner: dict from winners.resolve_winner(), or None.
+    A linked winner is @mentioned; an unlinked one is shown as plain @rsn.
     """
-    lines = ['**Competition Results**', '']
+    lines = [f'**{comp_type.display_name} Results**', '']
 
-    if botw_winner:
-        mention = _mention(botw_winner)
-        label = _gained_label('botw', botw_winner.get('gained'))
-        lines.append(f'**BOTW** — {mention} with **{label}** (`{botw_winner["rsn"]}`)')
+    if winner:
+        mention = _mention(winner)
+        label = _gained_label(comp_type, winner.get('gained'))
+        lines.append(f'{mention} with **{label}** (`{winner["rsn"]}`)')
+        lines += [
+            '',
+            f"Congrats! Your pick decides next cycle's "
+            f'{types.TYPES[comp_type.feeds_picker_for].display_name} target.',
+        ]
     else:
-        lines.append('**BOTW** — no winner data available')
-
-    if sotw_winner:
-        mention = _mention(sotw_winner)
-        label = _gained_label('sotw', sotw_winner.get('gained'))
-        lines.append(f'**SOTW** — {mention} with **{label}** (`{sotw_winner["rsn"]}`)')
-    else:
-        lines.append('**SOTW** — no winner data available')
-
-    lines += [
-        '',
-        "Congrats to both winners! Each winner picks the next cycle's opposite event target.",
-    ]
+        lines.append('No winner data available.')
 
     return '\n'.join(lines)
 

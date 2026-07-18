@@ -5,12 +5,11 @@ isolated by passing testdb=None and replacing identity_db calls with mocks
 where needed (see test_resolve_winner_* below).
 """
 import datetime
-import types
 import unittest.mock as mock
 
 import pytest
 
-from cogs.wise_old_man.competitions import announcements, event_calendar, wom_api, winners
+from cogs.wise_old_man.competitions import announcements, event_calendar, types, wom_api, winners
 
 
 # ---------------------------------------------------------------------------
@@ -109,56 +108,6 @@ def test_resolve_winner_no_participations(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# winners.resolve_winners (API path)
-# ---------------------------------------------------------------------------
-
-def test_resolve_winners_both_linked(monkeypatch):
-    monkeypatch.setattr(
-        'cogs.wise_old_man.identity.db.discord_user_for_wom_id',
-        lambda wid, testdb=None: _make_linked_identity(wid * 10),
-    )
-    botw = _make_competition_detail(1, [_make_participation(10, 'crab', 100)])
-    sotw = _make_competition_detail(2, [_make_participation(20, 'mayo', 9999)])
-
-    bw, sw, conflicts = winners.resolve_winners(botw, sotw)
-
-    assert bw['rsn'] == 'crab'
-    assert sw['rsn'] == 'mayo'
-    assert conflicts == []
-
-
-def test_resolve_winners_unlinked_adds_conflict(monkeypatch):
-    monkeypatch.setattr(
-        'cogs.wise_old_man.identity.db.discord_user_for_wom_id',
-        lambda wid, testdb=None: None,
-    )
-    botw = _make_competition_detail(1, [_make_participation(10, 'crab', 100)])
-    sotw = _make_competition_detail(2, [_make_participation(20, 'mayo', 9999)])
-
-    bw, sw, conflicts = winners.resolve_winners(botw, sotw)
-
-    assert bw is not None
-    assert sw is not None
-    assert any('crab' in c for c in conflicts)
-    assert any('mayo' in c for c in conflicts)
-
-
-def test_resolve_winners_no_participations_adds_conflict(monkeypatch):
-    monkeypatch.setattr(
-        'cogs.wise_old_man.identity.db.discord_user_for_wom_id',
-        lambda wid, testdb=None: None,
-    )
-    botw = _make_competition_detail(1, [])
-    sotw = _make_competition_detail(2, [])
-
-    bw, sw, conflicts = winners.resolve_winners(botw, sotw)
-
-    assert bw is None
-    assert sw is None
-    assert len(conflicts) == 2
-
-
-# ---------------------------------------------------------------------------
 # event_calendar parsing
 # ---------------------------------------------------------------------------
 
@@ -215,7 +164,7 @@ def test_event_calendar_no_participants_returns_none_winner():
 
 
 # ---------------------------------------------------------------------------
-# announcements.build_results_post
+# announcements.build_result_post
 # ---------------------------------------------------------------------------
 
 def _winner(comp_type, rsn, gained, discord_user_id=None, alias=None):
@@ -229,29 +178,27 @@ def _winner(comp_type, rsn, gained, discord_user_id=None, alias=None):
     }
 
 
-def test_build_results_post_linked_winner():
+def test_build_result_post_linked_winner():
     bw = _winner('botw', 'crab', 250, discord_user_id=1234)
-    sw = _winner('sotw', 'mayo', 500000, discord_user_id=5678)
-    text = announcements.build_results_post(bw, sw)
+    text = announcements.build_result_post(types.TYPES['botw'], bw)
 
+    assert '**BOTW Results**' in text
     assert '<@1234>' in text
-    assert '<@5678>' in text
     assert '250 KC' in text
+
+
+def test_build_result_post_unlinked_winner():
+    sw = _winner('sotw', 'mayo', 500000)
+    text = announcements.build_result_post(types.TYPES['sotw'], sw)
+
+    assert '**SOTW Results**' in text
+    assert '@mayo' in text
     assert '500,000 XP' in text
 
 
-def test_build_results_post_unlinked_winner():
-    bw = _winner('botw', 'crab', 250)
-    sw = _winner('sotw', 'mayo', 500000)
-    text = announcements.build_results_post(bw, sw)
-
-    assert '@crab' in text
-    assert '@mayo' in text
-
-
-def test_build_results_post_none_winner():
-    text = announcements.build_results_post(None, None)
-    assert 'no winner data available' in text
+def test_build_result_post_none_winner():
+    text = announcements.build_result_post(types.TYPES['botw'], None)
+    assert 'No winner data available.' in text
 
 
 # ---------------------------------------------------------------------------
@@ -279,7 +226,7 @@ def test_build_kickoff_post_includes_titles_and_pickers():
 
 
 # ---------------------------------------------------------------------------
-# wom_api.find_ended_competition_pair
+# wom_api.find_ended_competitions
 # ---------------------------------------------------------------------------
 
 _NOW = datetime.datetime(2026, 7, 6, 12, 0, tzinfo=datetime.timezone.utc)
@@ -289,45 +236,36 @@ def _make_comp_summary(comp_id, title, starts_at, ends_at):
     return {'id': comp_id, 'title': title, 'startsAt': starts_at, 'endsAt': ends_at}
 
 
-def test_find_ended_competition_pair_ignores_stray_old_sotw():
+def test_find_ended_competitions_includes_recently_ended():
     current_window = ('2026-06-27T14:00:00.000Z', '2026-07-04T14:00:00.000Z')
-    old_window = ('2026-05-01T14:00:00.000Z', '2026-05-08T14:00:00.000Z')
-
-    stray_sotw = _make_comp_summary(1, 'Runecrafting - Skill of the Week', *old_window)
     current_botw = _make_comp_summary(2, 'Vorkath - Boss of the Week', *current_window)
     current_sotw = _make_comp_summary(3, 'Fishing - Skill of the Week', *current_window)
 
-    botw, sotw = wom_api.find_ended_competition_pair([stray_sotw, current_botw, current_sotw], now=_NOW)
+    result = wom_api.find_ended_competitions([current_botw, current_sotw], now=_NOW)
 
-    assert botw['id'] == 2
-    assert sotw['id'] == 3
+    assert {c['id'] for c in result} == {2, 3}
 
 
-def test_find_ended_competition_pair_missing_keys_does_not_crash():
+def test_find_ended_competitions_missing_keys_does_not_crash():
     incomplete = {}  # no title, endsAt, startsAt
-    botw, sotw = wom_api.find_ended_competition_pair([incomplete], now=_NOW)
+    result = wom_api.find_ended_competitions([incomplete], now=_NOW)
 
-    assert botw is None
-    assert sotw is None
+    assert result == []
 
 
-def test_find_ended_competition_pair_ignores_not_yet_ended():
+def test_find_ended_competitions_ignores_not_yet_ended():
     not_ended = _make_comp_summary(
         1, 'Vorkath - Boss of the Week', '2026-07-04T14:00:00.000Z', '2026-07-13T04:00:00.000Z'
     )
-    botw, sotw = wom_api.find_ended_competition_pair([not_ended], now=_NOW)
+    result = wom_api.find_ended_competitions([not_ended], now=_NOW)
 
-    assert botw is None
-    assert sotw is None
+    assert result == []
 
 
-def test_find_ended_competition_pair_no_matching_sotw_window():
-    botw = _make_comp_summary(1, 'Vorkath - Boss of the Week',
-                               '2026-06-27T14:00:00.000Z', '2026-07-04T14:00:00.000Z')
-    mismatched_sotw = _make_comp_summary(2, 'Fishing - Skill of the Week',
-                                          '2026-05-01T14:00:00.000Z', '2026-05-08T14:00:00.000Z')
+def test_find_ended_competitions_ignores_stray_past_lookback():
+    old_window = ('2026-05-01T14:00:00.000Z', '2026-05-08T14:00:00.000Z')
+    stray = _make_comp_summary(1, 'Runecrafting - Skill of the Week', *old_window)
 
-    result_botw, result_sotw = wom_api.find_ended_competition_pair([botw, mismatched_sotw], now=_NOW)
+    result = wom_api.find_ended_competitions([stray], now=_NOW, lookback_days=14)
 
-    assert result_botw['id'] == 1
-    assert result_sotw is None
+    assert result == []

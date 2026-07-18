@@ -62,21 +62,17 @@ create table Discord.competition_cycle (
   created_at timestamp default current_timestamp
 );
 
--- One row per WOM competition we create/track (two per cycle).
--- verification_code is sensitive: it grants edit/delete on the WOM competition.
+-- One row per WOM competition we create/track (two per cycle). Everything
+-- WOM's API already returns (type, metric, title, dates, winner) is queried
+-- live instead of mirrored here; this table only holds what has no WOM
+-- equivalent. verification_code is sensitive: it grants edit/delete on the
+-- WOM competition.
 create table Discord.competition (
   competition_id int unsigned primary key,
   cycle_id int unsigned null,
-  type enum('botw', 'sotw') not null,
-  metric varchar(32) not null,
-  title varchar(255) not null,
-  starts_at datetime not null,
-  ends_at datetime not null,
   verification_code varchar(64) null,
   picker_user_id bigint unsigned null,
-  winner_wom_user_id int unsigned null,
-  winner_gained bigint null,
-  results_posted boolean default false,
+  results_status enum('pending', 'drafted', 'announcing', 'announced', 'deferred') default 'pending',
   created_at timestamp default current_timestamp,
   constraint fk_competition_cycle foreign key (cycle_id) references Discord.competition_cycle (id)
 );

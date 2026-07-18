@@ -1,49 +1,53 @@
 import os
 
-import discord
+from . import types
 
 
-async def swap_winner_roles(guild, botw_discord_id, sotw_discord_id):
-    """Strip all winner roles from current holders and assign to new winners.
+def _get_role(guild, env_key):
+    val = os.getenv(env_key)
+    return guild.get_role(int(val)) if val else None
 
-    botw_discord_id / sotw_discord_id are Discord user IDs (int) or None.
-    Returns a list of warning strings for any roles that could not be assigned.
+
+def _holds_other_type_role(guild, member, comp_type):
+    """True if member still holds a different type's specific winner role."""
+    for other in types.TYPES.values():
+        if other.key == comp_type.key:
+            continue
+        other_role = _get_role(guild, other.winner_role_env)
+        if other_role and member in other_role.members:
+            return True
+    return False
+
+
+async def assign_winner_role(guild, discord_id, comp_type):
+    """Strip comp_type's role from its current holders and assign it (plus the
+    shared COMPETITION_WINNER_ROLE) to the new winner.
+
+    discord_id is the winning Discord user's id (int) or None.
+    Returns a list of warning strings for anything that could not be assigned.
     """
-    def _get_role(env_key):
-        val = os.getenv(env_key)
-        return guild.get_role(int(val)) if val else None
-
-    sotw_role = _get_role('SOTW_WINNER_ROLE')
-    botw_role = _get_role('BOTW_WINNER_ROLE')
-    comp_role = _get_role('COMPETITION_WINNER_ROLE')
-    all_winner_roles = [r for r in (sotw_role, botw_role, comp_role) if r]
+    comp_role = _get_role(guild, comp_type.winner_role_env)
+    shared_role = _get_role(guild, 'COMPETITION_WINNER_ROLE')
 
     warnings = []
 
-    for role in all_winner_roles:
-        for member in list(role.members):
-            await member.remove_roles(role, reason='Competition cycle ended')
+    if comp_role:
+        for member in list(comp_role.members):
+            await member.remove_roles(comp_role, reason=f'{comp_type.display_name} cycle ended')
+            if shared_role and not _holds_other_type_role(guild, member, comp_type):
+                await member.remove_roles(shared_role, reason=f'{comp_type.display_name} cycle ended')
 
-    if botw_discord_id:
-        member = guild.get_member(botw_discord_id)
+    if discord_id:
+        member = guild.get_member(discord_id)
         if member:
-            to_add = [r for r in (botw_role, comp_role) if r]
+            to_add = [r for r in (comp_role, shared_role) if r]
             if to_add:
-                await member.add_roles(*to_add, reason='BOTW winner')
+                await member.add_roles(*to_add, reason=f'{comp_type.display_name} winner')
         else:
-            warnings.append(f'BOTW winner (id {botw_discord_id}) not found in guild — roles not assigned.')
+            warnings.append(
+                f'{comp_type.display_name} winner (id {discord_id}) not found in guild — roles not assigned.'
+            )
     else:
-        warnings.append('BOTW winner has no Discord link — BOTW roles not assigned.')
-
-    if sotw_discord_id:
-        member = guild.get_member(sotw_discord_id)
-        if member:
-            to_add = [r for r in (sotw_role, comp_role) if r]
-            if to_add:
-                await member.add_roles(*to_add, reason='SOTW winner')
-        else:
-            warnings.append(f'SOTW winner (id {sotw_discord_id}) not found in guild — roles not assigned.')
-    else:
-        warnings.append('SOTW winner has no Discord link — SOTW roles not assigned.')
+        warnings.append(f'{comp_type.display_name} winner has no Discord link — roles not assigned.')
 
     return warnings

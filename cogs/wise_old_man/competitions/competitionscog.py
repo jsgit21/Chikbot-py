@@ -8,7 +8,7 @@ from discord.ext import commands, tasks
 import database.db_methods as db_methods
 from ..identity import db as identity_db
 from ..shared import checks, tz
-from . import announcements, db as comp_db, event_calendar, metrics, scheduling, winners, wom_api
+from . import announcements, db as comp_db, event_calendar, metrics, scheduling, types, winners, wom_api
 from .views import ConfirmCreateView, KickoffApprovalView, ResultsApprovalView
 
 
@@ -32,7 +32,9 @@ class Competitions(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
-        self.bot.add_view(ResultsApprovalView())
+        drafted = await asyncio.to_thread(comp_db.get_drafted_competitions)
+        for row in drafted:
+            self.bot.add_view(ResultsApprovalView(row['competition_id']))
         self.bot.add_view(KickoffApprovalView())
 
     # -------------------------------------------------------------------------
@@ -107,13 +109,22 @@ class Competitions(commands.Cog):
         existing_cycle = await asyncio.to_thread(
             comp_db.get_planned_cycle_for_window, starts_at, ends_at
         )
-        existing_comps = []
+        existing_by_type = {}
         if existing_cycle:
             existing_comps = await asyncio.to_thread(
                 comp_db.get_competitions_for_cycle, existing_cycle['id']
             )
-        existing_botw = next((c for c in existing_comps if c['type'] == 'botw'), None)
-        existing_sotw = next((c for c in existing_comps if c['type'] == 'sotw'), None)
+            for row in existing_comps:
+                try:
+                    detail = await asyncio.to_thread(wom_api.get_competition, row['competition_id'])
+                except Exception:
+                    continue
+                comp_type = types.infer_type_from_title(detail.get('title', ''))
+                if comp_type:
+                    existing_by_type[comp_type.key] = (row, detail)
+
+        existing_botw, existing_botw_detail = existing_by_type.get('botw', (None, None))
+        existing_sotw, existing_sotw_detail = existing_by_type.get('sotw', (None, None))
 
         botw_picker_id, botw_picker_alias = await self._resolve_picker(
             ctx.guild, botw_picker, last_cycle, 'botw'
@@ -124,10 +135,10 @@ class Competitions(commands.Cog):
 
         botw_display = metrics.display_name('botw', botw_metric)
         sotw_display = metrics.display_name('sotw', sotw_metric)
-        botw_title = existing_botw['title'] if existing_botw else (
+        botw_title = existing_botw_detail['title'] if existing_botw_detail else (
             f"{botw_display} - Boss of the Week [{botw_picker_alias}'s pick]"
         )
-        sotw_title = existing_sotw['title'] if existing_sotw else (
+        sotw_title = existing_sotw_detail['title'] if existing_sotw_detail else (
             f"{sotw_display} - Skill of the Week [{sotw_picker_alias}'s pick]"
         )
 
@@ -136,7 +147,7 @@ class Competitions(commands.Cog):
             'ends_at': ends_at,
             'cycle_id': existing_cycle['id'] if existing_cycle else None,
             'botw': {
-                'metric': existing_botw['metric'] if existing_botw else botw_metric,
+                'metric': existing_botw_detail['metric'] if existing_botw_detail else botw_metric,
                 'metric_display': botw_display, 'title': botw_title,
                 'picker_user_id': existing_botw['picker_user_id'] if existing_botw else botw_picker_id,
                 'picker_text': f'<@{botw_picker_id}>' if botw_picker_id else botw_picker_alias,
@@ -144,7 +155,7 @@ class Competitions(commands.Cog):
                 'existing_verification_code': existing_botw['verification_code'] if existing_botw else None,
             },
             'sotw': {
-                'metric': existing_sotw['metric'] if existing_sotw else sotw_metric,
+                'metric': existing_sotw_detail['metric'] if existing_sotw_detail else sotw_metric,
                 'metric_display': sotw_display, 'title': sotw_title,
                 'picker_user_id': existing_sotw['picker_user_id'] if existing_sotw else sotw_picker_id,
                 'picker_text': f'<@{sotw_picker_id}>' if sotw_picker_id else sotw_picker_alias,
@@ -188,18 +199,25 @@ class Competitions(commands.Cog):
         if not last_cycle:
             return None, 'the group'
 
+        source_type = types.picker_source_for(comp_type).key
         comps = await asyncio.to_thread(comp_db.get_competitions_for_cycle, last_cycle['id'])
-        source_type = 'sotw' if comp_type == 'botw' else 'botw'
-        row = next((c for c in comps if c['type'] == source_type), None)
-        if not row or not row['winner_wom_user_id']:
+
+        winner = None
+        for row in comps:
+            try:
+                detail = await asyncio.to_thread(wom_api.get_competition, row['competition_id'])
+            except Exception:
+                continue
+            inferred = types.infer_type_from_title(detail.get('title', ''))
+            if inferred and inferred.key == source_type:
+                winner = winners.resolve_winner(detail)
+                break
+
+        if not winner or not winner['discord_user_id']:
             return None, 'the group'
 
-        identity = await asyncio.to_thread(identity_db.discord_user_for_wom_id, row['winner_wom_user_id'])
-        if not identity:
-            return None, 'the group'
-
-        user_id = identity['user_id']
-        alias = identity['preferred_alias']
+        user_id = winner['discord_user_id']
+        alias = winner['alias']
         if not alias:
             member = guild.get_member(user_id)
             alias = member.display_name if member else 'the group'
@@ -229,72 +247,73 @@ class Competitions(commands.Cog):
     # -------------------------------------------------------------------------
 
     async def _run_winner_detection(self):
+        """Two passes: our own tracked backlog (unbounded), then a bounded
+        lookback scan for competitions never created via /competition create.
+        """
         mod_channel = self.mod_channel
+        processed_any = False
+
+        unprocessed = await asyncio.to_thread(comp_db.get_unprocessed_competitions)
+        for row in unprocessed:
+            try:
+                detail = await asyncio.to_thread(wom_api.get_competition, row['competition_id'])
+            except Exception as exc:
+                await mod_channel.send(
+                    f'Winner detection: WOM API error fetching competition {row["competition_id"]}: {exc}'
+                )
+                continue
+
+            if _parse_iso(detail['endsAt']) >= datetime.datetime.utcnow():
+                continue
+
+            comp_type = types.infer_type_from_title(detail.get('title', ''))
+            if comp_type is None:
+                await mod_channel.send(
+                    f'Winner detection: competition {row["competition_id"]} '
+                    f'("{detail.get("title")}") doesn\'t match a known competition type.'
+                )
+                continue
+
+            await self._handle_competition_ended(detail, detail, row, comp_type, mod_channel)
+            processed_any = True
 
         try:
             competitions = await asyncio.to_thread(wom_api.list_group_competitions)
         except Exception as exc:
             await mod_channel.send(f'Winner detection: WOM API error fetching competitions: {exc}')
-            return
+            competitions = []
 
-        botw_summary, sotw_summary = wom_api.find_ended_competition_pair(competitions)
-        if not botw_summary or not sotw_summary:
+        for summary in wom_api.find_ended_competitions(competitions):
+            existing_row = await asyncio.to_thread(comp_db.get_competition_by_id, summary['id'])
+            if existing_row:
+                continue  # already covered by pass 1, or already resolved
+
+            try:
+                detail = await asyncio.to_thread(wom_api.get_competition, summary['id'])
+            except Exception as exc:
+                await mod_channel.send(
+                    f'Winner detection: WOM API error fetching competition {summary["id"]}: {exc}'
+                )
+                continue
+
+            comp_type = types.infer_type_from_title(detail.get('title', ''))
+            if comp_type is None:
+                await mod_channel.send(
+                    f'Winner detection: competition {summary["id"]} '
+                    f'("{detail.get("title")}") doesn\'t match a known competition type.'
+                )
+                continue
+
+            await self._handle_competition_ended(summary, detail, None, comp_type, mod_channel)
+            processed_any = True
+
+        if not processed_any:
             await self._handle_no_active_cycle(mod_channel)
-            return
-
-        # Skip if this BOTW competition is already in our DB with results posted —
-        # but still nudge if nothing new has been queued for the next cycle.
-        existing = await asyncio.to_thread(comp_db.get_competition_by_id, botw_summary['id'])
-        if existing and existing['results_posted']:
-            await self._handle_no_active_cycle(mod_channel)
-            return
-
-        botw_winner, sotw_winner, conflicts = await self._resolve_winners(
-            botw_summary, sotw_summary, mod_channel
-        )
-        if botw_winner is None and sotw_winner is None and not conflicts:
-            return  # _resolve_winners already posted an error
-
-        cycle_id = await self._ensure_cycle(botw_summary, existing)
-
-        await asyncio.to_thread(
-            comp_db.upsert_competition,
-            botw_summary['id'], cycle_id, 'botw',
-            botw_summary['metric'], botw_summary['title'],
-            _parse_iso(botw_summary['startsAt']), _parse_iso(botw_summary['endsAt']),
-        )
-        await asyncio.to_thread(
-            comp_db.upsert_competition,
-            sotw_summary['id'], cycle_id, 'sotw',
-            sotw_summary['metric'], sotw_summary['title'],
-            _parse_iso(sotw_summary['startsAt']), _parse_iso(sotw_summary['endsAt']),
-        )
-
-        if botw_winner:
-            await asyncio.to_thread(
-                comp_db.set_competition_winner,
-                botw_winner['competition_id'],
-                botw_winner['wom_user_id'],
-                botw_winner['gained'],
+        else:
+            await mod_channel.send(
+                '-# Reminder: collect picks from both winners before next Sunday '
+                '(BOTW winner picks next SOTW; SOTW winner picks next BOTW).'
             )
-        if sotw_winner:
-            await asyncio.to_thread(
-                comp_db.set_competition_winner,
-                sotw_winner['competition_id'],
-                sotw_winner['wom_user_id'],
-                sotw_winner['gained'],
-            )
-
-        await asyncio.to_thread(comp_db.set_cycle_status, cycle_id, 'ended')
-
-        draft = _build_draft(botw_winner, sotw_winner, conflicts)
-        view = ResultsApprovalView()
-        await mod_channel.send(draft, view=view)
-
-        await mod_channel.send(
-            '-# Reminder: collect picks from both winners before next Sunday '
-            '(BOTW winner picks next SOTW; SOTW winner picks next BOTW).'
-        )
 
     async def _handle_no_active_cycle(self, mod_channel):
         """Nudge mods on a Monday with nothing ended and nothing queued.
@@ -332,70 +351,80 @@ class Competitions(commands.Cog):
                 "raise `weeks_out` to push it further)."
             )
 
-    async def _resolve_winners(self, botw_summary, sotw_summary, mod_channel):
-        """Fetch competition details and resolve winners.
+    async def _handle_competition_ended(self, summary, detail, existing_row, comp_type, mod_channel):
+        """Resolve, persist, and draft results for a single ended competition.
 
-        Falls back to the event-calendar parser if the WOM API is unavailable.
-        Returns (botw_winner, sotw_winner, conflicts).
+        Nothing WOM-derivable gets written to the DB here — winner and type
+        are re-derived live again at Approve/Dismiss click time.
         """
+        conflicts = []
         try:
-            botw_detail = await asyncio.to_thread(wom_api.get_competition, botw_summary['id'])
-            sotw_detail = await asyncio.to_thread(wom_api.get_competition, sotw_summary['id'])
-            return winners.resolve_winners(botw_detail, sotw_detail)
-        except Exception as api_exc:
+            winner = winners.resolve_winner(detail)
+        except Exception as exc:
             await mod_channel.send(
-                f'WOM API failed fetching competition details: {api_exc}\nAttempting event-calendar fallback...'
+                f'Error resolving the {comp_type.display_name} winner for competition '
+                f'{summary["id"]}: {exc}\nAttempting event-calendar fallback...'
+            )
+            winner = None
+            try:
+                parsed = await self._event_calendar_fallback(summary['id'])
+            except Exception as fallback_exc:
+                parsed = None
+                await mod_channel.send(f'Event-calendar fallback also failed: {fallback_exc}')
+            if parsed:
+                winner = winners.resolve_winner_from_fallback(parsed, summary['id'])
+                conflicts.append(
+                    'Winner sourced from event-calendar fallback (WOM API was unavailable) — '
+                    'verify before approving.'
+                )
+
+        if winner is None:
+            conflicts.append(f'No {comp_type.display_name} participants with recorded progress.')
+        elif winner['discord_user_id'] is None:
+            conflicts.append(
+                f'{comp_type.display_name} winner `{winner["rsn"]}` has no Discord link — '
+                'have a mod run `/wom link`, or ask the winner to run `/wom claim` themselves, '
+                'before approving.'
             )
 
-        try:
-            botw_parsed, sotw_parsed = await self._event_calendar_fallback(botw_summary, sotw_summary)
-            if botw_parsed or sotw_parsed:
-                return winners.resolve_winners_from_fallback(
-                    botw_parsed, sotw_parsed,
-                    botw_summary['id'], sotw_summary['id'],
-                )
-        except Exception as fallback_exc:
-            await mod_channel.send(f'Event-calendar fallback also failed: {fallback_exc}')
+        cycle_id = existing_row['cycle_id'] if existing_row else None
+        await asyncio.to_thread(comp_db.ensure_competition_row, summary['id'], cycle_id)
+        await asyncio.to_thread(comp_db.set_results_status, summary['id'], 'drafted')
 
-        await mod_channel.send(
-            'Could not determine winners from WOM API or event-calendar. Resolve manually.'
-        )
-        return None, None, []
+        draft = _build_draft(comp_type, winner, conflicts)
+        await mod_channel.send(draft, view=ResultsApprovalView(summary['id']))
 
-    async def _event_calendar_fallback(self, botw_summary, sotw_summary):
-        """Read the event-calendar channel and match messages to the competition pair."""
+        await self._maybe_mark_cycle_ended(cycle_id)
+
+    async def _event_calendar_fallback(self, competition_id):
+        """Read the event-calendar channel and match a message to this competition id."""
         ec_id = os.getenv('EVENT_CALENDAR_CHANNEL')
         wom_bot_id_str = os.getenv('WOM_DISCORD_BOT_ID')
         if not ec_id or not wom_bot_id_str:
-            return None, None
+            return None
 
         ec_channel = self.bot.get_channel(int(ec_id))
         if not ec_channel:
-            return None, None
+            return None
 
         wom_bot_id = int(wom_bot_id_str)
         messages = await ec_channel.history(limit=50).flatten()
         wom_messages = [m for m in messages if m.author.id == wom_bot_id]
 
-        botw_parsed = None
-        sotw_parsed = None
         for msg in wom_messages:
             parsed = event_calendar.parse_result_message(msg)
-            if parsed['competition_id'] == botw_summary['id']:
-                botw_parsed = parsed
-            elif parsed['competition_id'] == sotw_summary['id']:
-                sotw_parsed = parsed
+            if parsed['competition_id'] == competition_id:
+                return parsed
 
-        return botw_parsed, sotw_parsed
+        return None
 
-    async def _ensure_cycle(self, botw_summary, existing_comp_row):
-        """Return a cycle_id, creating a new cycle row if needed."""
-        if existing_comp_row and existing_comp_row.get('cycle_id'):
-            return existing_comp_row['cycle_id']
-
-        starts_at = _parse_iso(botw_summary['startsAt'])
-        ends_at = _parse_iso(botw_summary['endsAt'])
-        return await asyncio.to_thread(comp_db.insert_cycle, starts_at, ends_at, 'planned')
+    async def _maybe_mark_cycle_ended(self, cycle_id):
+        """Flip a cycle to 'ended' once every competition sharing it is resolved."""
+        if not cycle_id:
+            return
+        comps = await asyncio.to_thread(comp_db.get_competitions_for_cycle, cycle_id)
+        if comps and all(c['results_status'] != 'pending' for c in comps):
+            await asyncio.to_thread(comp_db.set_cycle_status, cycle_id, 'ended')
 
 
 # -------------------------------------------------------------------------
@@ -407,18 +436,18 @@ def _parse_iso(iso_str):
     return datetime.datetime.fromisoformat(iso_str.replace('Z', '+00:00')).replace(tzinfo=None)
 
 
-def _build_draft(botw_winner, sotw_winner, conflicts):
+def _build_draft(comp_type, winner, conflicts):
     lines = [
-        '**[DRAFT] Competition Results — Pending Mod Approval**',
+        f'**[DRAFT] {comp_type.display_name} Results — Pending Mod Approval**',
         '',
-        announcements.build_results_post(botw_winner, sotw_winner),
+        announcements.build_result_post(comp_type, winner),
     ]
     if conflicts:
         lines += ['', '**Issues to resolve before approving:**']
         lines += [f'- {c}' for c in conflicts]
     lines += [
         '',
-        '-# Click **Approve & Post** to publish to the announcements channel and swap winner roles.',
+        '-# Click **Approve & Post** to publish to the announcements channel and assign the winner role.',
     ]
     return '\n'.join(lines)
 

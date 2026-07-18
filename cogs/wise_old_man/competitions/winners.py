@@ -47,36 +47,6 @@ def resolve_winner(competition_detail, testdb=None):
     }
 
 
-def resolve_winners(botw_detail, sotw_detail, testdb=None):
-    """Resolve both winners. Returns (botw_winner, sotw_winner, conflicts).
-
-    Each winner is the dict from resolve_winner(), or None.
-    conflicts is a list of human-readable warning strings for the mod.
-    """
-    conflicts = []
-
-    botw_winner = resolve_winner(botw_detail, testdb=testdb)
-    sotw_winner = resolve_winner(sotw_detail, testdb=testdb)
-
-    if botw_winner is None:
-        conflicts.append('No BOTW participants with recorded progress.')
-    elif botw_winner['discord_user_id'] is None:
-        conflicts.append(
-            f'BOTW winner `{botw_winner["rsn"]}` has no Discord link — have a mod run `/wom link`, '
-            'or ask the winner to run `/wom claim` themselves, before approving.'
-        )
-
-    if sotw_winner is None:
-        conflicts.append('No SOTW participants with recorded progress.')
-    elif sotw_winner['discord_user_id'] is None:
-        conflicts.append(
-            f'SOTW winner `{sotw_winner["rsn"]}` has no Discord link — have a mod run `/wom link`, '
-            'or ask the winner to run `/wom claim` themselves, before approving.'
-        )
-
-    return botw_winner, sotw_winner, conflicts
-
-
 def resolve_winner_from_fallback(parsed, comp_id, testdb=None):
     """Build a winner dict from an event_calendar parsed result.
 
@@ -104,31 +74,3 @@ def resolve_winner_from_fallback(parsed, comp_id, testdb=None):
         'discord_user_id': identity['user_id'] if identity else None,
         'alias': identity['preferred_alias'] if identity else None,
     }
-
-
-def resolve_winners_from_fallback(botw_parsed, sotw_parsed, botw_comp_id, sotw_comp_id, testdb=None):
-    """Fallback version of resolve_winners using event_calendar results."""
-    conflicts = []
-
-    botw_winner = resolve_winner_from_fallback(botw_parsed, botw_comp_id, testdb=testdb)
-    sotw_winner = resolve_winner_from_fallback(sotw_parsed, sotw_comp_id, testdb=testdb)
-
-    if botw_winner is None:
-        conflicts.append('BOTW winner could not be parsed from event-calendar fallback.')
-    elif botw_winner['discord_user_id'] is None:
-        conflicts.append(
-            f'BOTW winner `{botw_winner["rsn"]}` has no Discord link — have a mod run `/wom link`, '
-            'or ask the winner to run `/wom claim` themselves, before approving.'
-        )
-
-    if sotw_winner is None:
-        conflicts.append('SOTW winner could not be parsed from event-calendar fallback.')
-    elif sotw_winner['discord_user_id'] is None:
-        conflicts.append(
-            f'SOTW winner `{sotw_winner["rsn"]}` has no Discord link — have a mod run `/wom link`, '
-            'or ask the winner to run `/wom claim` themselves, before approving.'
-        )
-
-    conflicts.append('Winners sourced from event-calendar fallback (WOM API was unavailable) — verify before approving.')
-
-    return botw_winner, sotw_winner, conflicts

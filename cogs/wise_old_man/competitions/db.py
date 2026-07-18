@@ -4,29 +4,24 @@ import database.db_methods as database
 from ..shared.rsn import normalize_rsn
 
 
-def upsert_competition(comp_id, cycle_id, comp_type, metric, title,
-                       starts_at, ends_at, verification_code=None,
-                       picker_user_id=None, testdb=None):
+def ensure_competition_row(competition_id, cycle_id=None, verification_code=None,
+                           picker_user_id=None, testdb=None):
+    """Insert a competition row if one doesn't already exist for this id.
+
+    Used both for a stray competition found by detection (bare row, no
+    cycle_id/verification_code/picker_user_id) and for a row created via
+    /competition create (all four set at once). A no-op if the row exists.
+    """
     db = testdb if testdb else database.create_connection()
     cursor = db.cursor()
-    query = """
-        insert into competition
-               (competition_id, cycle_id, type, metric, title, starts_at, ends_at,
-                verification_code, picker_user_id)
-             values (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-        on duplicate key update
-               cycle_id           = coalesce(values(cycle_id), cycle_id),
-               metric             = values(metric),
-               title              = values(title),
-               starts_at          = values(starts_at),
-               ends_at            = values(ends_at),
-               verification_code  = coalesce(values(verification_code), verification_code),
-               picker_user_id     = coalesce(values(picker_user_id), picker_user_id)
-    """
-    cursor.execute(query, (
-        comp_id, cycle_id, comp_type, metric, title,
-        starts_at, ends_at, verification_code, picker_user_id,
-    ))
+    cursor.execute(
+        """
+        insert into competition (competition_id, cycle_id, verification_code, picker_user_id)
+             values (%s, %s, %s, %s)
+        on duplicate key update competition_id = competition_id
+        """,
+        (competition_id, cycle_id, verification_code, picker_user_id),
+    )
 
 
 def get_competition_by_id(competition_id, testdb=None):
@@ -36,21 +31,12 @@ def get_competition_by_id(competition_id, testdb=None):
     return cursor.fetchone()
 
 
-def set_competition_winner(competition_id, winner_wom_user_id, winner_gained, testdb=None):
+def set_results_status(competition_id, status, testdb=None):
     db = testdb if testdb else database.create_connection()
     cursor = db.cursor()
     cursor.execute(
-        'update competition set winner_wom_user_id = %s, winner_gained = %s where competition_id = %s',
-        (winner_wom_user_id, winner_gained, competition_id),
-    )
-
-
-def mark_results_posted(competition_id, testdb=None):
-    db = testdb if testdb else database.create_connection()
-    cursor = db.cursor()
-    cursor.execute(
-        'update competition set results_posted = true where competition_id = %s',
-        (competition_id,),
+        'update competition set results_status = %s where competition_id = %s',
+        (status, competition_id),
     )
 
 
@@ -73,14 +59,30 @@ def set_cycle_status(cycle_id, status, testdb=None):
     )
 
 
-def claim_cycle_for_announcing(cycle_id, testdb=None):
-    """Atomically move a cycle from 'ended' to 'announcing'. Returns rowcount (0 if already claimed)."""
+def claim_competition_for_announcing(competition_id, testdb=None):
+    """Atomically move a competition from 'drafted' to 'announcing'. Returns rowcount (0 if already claimed)."""
     db = testdb if testdb else database.create_connection()
     cursor = db.cursor()
     cursor.execute(
-        "update competition_cycle set status = 'announcing' "
-        "where id = %s and status = 'ended'", (cycle_id,))
+        "update competition set results_status = 'announcing' "
+        "where competition_id = %s and results_status = 'drafted'", (competition_id,))
     return cursor.rowcount
+
+
+def get_unprocessed_competitions(testdb=None):
+    """Return competition rows winner detection hasn't drafted results for yet."""
+    db = testdb if testdb else database.create_connection()
+    cursor = db.cursor(pymysql.cursors.DictCursor)
+    cursor.execute("select * from competition where results_status = 'pending'")
+    return cursor.fetchall()
+
+
+def get_drafted_competitions(testdb=None):
+    """Return competition rows with a results draft awaiting mod approval."""
+    db = testdb if testdb else database.create_connection()
+    cursor = db.cursor(pymysql.cursors.DictCursor)
+    cursor.execute("select * from competition where results_status = 'drafted'")
+    return cursor.fetchall()
 
 
 def claim_cycle_for_publishing(cycle_id, testdb=None):
@@ -91,16 +93,6 @@ def claim_cycle_for_publishing(cycle_id, testdb=None):
         "update competition_cycle set status = 'publishing' "
         "where id = %s and status = 'planned'", (cycle_id,))
     return cursor.rowcount
-
-
-def get_pending_cycles(testdb=None):
-    """Return cycles that have ended but not yet been announced."""
-    db = testdb if testdb else database.create_connection()
-    cursor = db.cursor(pymysql.cursors.DictCursor)
-    cursor.execute(
-        "select * from competition_cycle where status = 'ended' order by ends_at desc"
-    )
-    return cursor.fetchall()
 
 
 def get_planned_cycles(testdb=None):

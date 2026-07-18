@@ -4,69 +4,45 @@ import os
 import discord
 
 from . import db as comp_db
-from . import announcements, metrics, roles, wom_api
-from ..identity import db as identity_db
+from . import announcements, metrics, roles, types, winners, wom_api
 from ..shared import checks
 from .scheduling import to_wom_iso
 
 
 class ApproveButton(discord.ui.Button):
-    def __init__(self):
+    def __init__(self, competition_id):
         super().__init__(
             label='Approve & Post',
             style=discord.ButtonStyle.green,
-            custom_id='comp_approve_results',
+            custom_id=f'comp_approve_results:{competition_id}',
         )
+        self.competition_id = competition_id
 
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.defer()
 
-        pending = await asyncio.to_thread(comp_db.get_pending_cycles)
-        if not pending:
-            await interaction.followup.send(
-                'No pending cycle found — it may have already been approved or dismissed.',
-            )
-            return
-
-        cycle = pending[0]
-
-        claimed = await asyncio.to_thread(comp_db.claim_cycle_for_announcing, cycle['id'])
+        claimed = await asyncio.to_thread(comp_db.claim_competition_for_announcing, self.competition_id)
         if not claimed:
             await interaction.followup.send(
-                'This cycle is already being processed or was already approved.',
+                'This competition is already being processed or was already approved.',
             )
             return
 
-        comps = await asyncio.to_thread(comp_db.get_competitions_for_cycle, cycle['id'])
-        botw_row = next((c for c in comps if c['type'] == 'botw'), None)
-        sotw_row = next((c for c in comps if c['type'] == 'sotw'), None)
+        try:
+            detail = await asyncio.to_thread(wom_api.get_competition, self.competition_id)
+        except Exception as exc:
+            await interaction.followup.send(f'WOM API error re-fetching competition: {exc}')
+            return
 
-        if not botw_row or not sotw_row:
+        comp_type = types.infer_type_from_title(detail.get('title', ''))
+        if comp_type is None:
             await interaction.followup.send(
-                'Competition data is incomplete in the DB. Cannot approve.',
+                f'Competition title "{detail.get("title")}" no longer matches a known competition type.'
             )
             return
 
-        async def _build_winner(row):
-            if not row['winner_wom_user_id']:
-                return None
-            rsn = await asyncio.to_thread(comp_db.get_rsn_for_wom_id, row['winner_wom_user_id'])
-            identity = await asyncio.to_thread(
-                identity_db.discord_user_for_wom_id, row['winner_wom_user_id']
-            )
-            return {
-                'competition_id': row['competition_id'],
-                'wom_user_id': row['winner_wom_user_id'],
-                'rsn': rsn or 'unknown',
-                'gained': row['winner_gained'],
-                'discord_user_id': identity['user_id'] if identity else None,
-                'alias': identity['preferred_alias'] if identity else None,
-            }
-
-        botw_winner = await _build_winner(botw_row)
-        sotw_winner = await _build_winner(sotw_row)
-
-        text = announcements.build_results_post(botw_winner, sotw_winner)
+        winner = winners.resolve_winner(detail)
+        text = announcements.build_result_post(comp_type, winner)
 
         ann_channel_id = os.getenv('ANNOUNCEMENTS_CHANNEL')
         if not ann_channel_id:
@@ -85,54 +61,41 @@ class ApproveButton(discord.ui.Button):
         await ann_channel.send(text)
 
         guild = interaction.guild
-        botw_did = botw_winner['discord_user_id'] if botw_winner else None
-        sotw_did = sotw_winner['discord_user_id'] if sotw_winner else None
+        discord_id = winner['discord_user_id'] if winner else None
         try:
-            role_warnings = await roles.swap_winner_roles(guild, botw_did, sotw_did)
+            role_warnings = await roles.assign_winner_role(guild, discord_id, comp_type)
         except Exception as exc:
-            role_warnings = [f'Role swap failed: {exc}']
+            role_warnings = [f'Role assignment failed: {exc}']
 
-        await asyncio.to_thread(comp_db.mark_results_posted, botw_row['competition_id'])
-        await asyncio.to_thread(comp_db.mark_results_posted, sotw_row['competition_id'])
-        await asyncio.to_thread(comp_db.set_cycle_status, cycle['id'], 'announced')
+        await asyncio.to_thread(comp_db.set_results_status, self.competition_id, 'announced')
 
         self.view.disable_all_items()
         await interaction.message.edit(view=self.view)
 
-        reply = 'Results posted and roles swapped.'
+        reply = 'Results posted and roles assigned.'
         if role_warnings:
             reply += '\n\n**Role warnings:**\n' + '\n'.join(f'- {w}' for w in role_warnings)
         await interaction.followup.send(reply)
 
 
 class DismissButton(discord.ui.Button):
-    def __init__(self):
+    def __init__(self, competition_id):
         super().__init__(
             label='Dismiss',
             style=discord.ButtonStyle.red,
-            custom_id='comp_dismiss_results',
+            custom_id=f'comp_dismiss_results:{competition_id}',
         )
+        self.competition_id = competition_id
 
     async def callback(self, interaction: discord.Interaction):
-        pending = await asyncio.to_thread(comp_db.get_pending_cycles)
-        if not pending:
-            await interaction.response.send_message(
-                'No pending cycle found — it may have already been approved or dismissed.'
-            )
-            return
-
-        cycle_id = pending[0]['id']
-        claimed = await asyncio.to_thread(comp_db.claim_cycle_for_announcing, cycle_id)
+        claimed = await asyncio.to_thread(comp_db.claim_competition_for_announcing, self.competition_id)
         if not claimed:
             await interaction.response.send_message(
-                'This cycle is already being processed or was already approved.'
+                'This competition is already being processed or was already approved.'
             )
             return
 
-        comps = await asyncio.to_thread(comp_db.get_competitions_for_cycle, cycle_id)
-        for comp in comps:
-            await asyncio.to_thread(comp_db.mark_results_posted, comp['competition_id'])
-        await asyncio.to_thread(comp_db.set_cycle_status, cycle_id, 'deferred')
+        await asyncio.to_thread(comp_db.set_results_status, self.competition_id, 'deferred')
 
         self.view.disable_all_items()
         await interaction.message.edit(view=self.view)
@@ -140,17 +103,19 @@ class DismissButton(discord.ui.Button):
 
 
 class ResultsApprovalView(discord.ui.View):
-    """Persistent approval gate for competition results.
+    """Persistent approval gate for one competition's results.
 
-    Uses stable custom_ids so the buttons survive bot restarts. The bot must
-    call bot.add_view(ResultsApprovalView()) in on_ready to re-register the
-    handler after a restart.
+    Embeds competition_id in each button's custom_id so a click always
+    resolves to this specific competition rather than "whichever is newest" —
+    multiple drafts can be outstanding at once. The bot must call
+    bot.add_view(ResultsApprovalView(competition_id)) in on_ready for every
+    still-drafted competition to re-register the handler after a restart.
     """
 
-    def __init__(self):
+    def __init__(self, competition_id):
         super().__init__(timeout=None)
-        self.add_item(ApproveButton())
-        self.add_item(DismissButton())
+        self.add_item(ApproveButton(competition_id))
+        self.add_item(DismissButton(competition_id))
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if not checks.moderator_interaction(interaction):
@@ -178,7 +143,7 @@ class ConfirmCreateButton(discord.ui.Button):
                 comp_db.insert_cycle, payload['starts_at'], payload['ends_at'], 'planned'
             )
 
-        async def _ensure_side(side, comp_type):
+        async def _ensure_side(side):
             """Create side on WOM and persist it, unless a resumed cycle already has it."""
             if side['existing_competition_id']:
                 return None
@@ -189,16 +154,14 @@ class ConfirmCreateButton(discord.ui.Button):
                 to_wom_iso(payload['starts_at']), to_wom_iso(payload['ends_at']),
             )
             await asyncio.to_thread(
-                comp_db.upsert_competition,
-                resp['competition']['id'], cycle_id, comp_type,
-                side['metric'], side['title'],
-                payload['starts_at'], payload['ends_at'],
+                comp_db.ensure_competition_row,
+                resp['competition']['id'], cycle_id,
                 resp['verificationCode'], side['picker_user_id'],
             )
             return resp
 
         try:
-            await _ensure_side(payload['botw'], 'botw')
+            await _ensure_side(payload['botw'])
         except Exception as exc:
             await interaction.followup.send(
                 f'Failed to create the BOTW competition on WOM: {exc}\n'
@@ -208,7 +171,7 @@ class ConfirmCreateButton(discord.ui.Button):
             return
 
         try:
-            await _ensure_side(payload['sotw'], 'sotw')
+            await _ensure_side(payload['sotw'])
         except Exception as exc:
             await interaction.followup.send(
                 f'BOTW was created on WOM, but the SOTW competition failed: {exc}\n'
@@ -321,24 +284,35 @@ class ApproveKickoffButton(discord.ui.Button):
             return
 
         comps = await asyncio.to_thread(comp_db.get_competitions_for_cycle, cycle['id'])
-        botw_row = next((c for c in comps if c['type'] == 'botw'), None)
-        sotw_row = next((c for c in comps if c['type'] == 'sotw'), None)
+        by_type = {}
+        for row in comps:
+            try:
+                detail = await asyncio.to_thread(wom_api.get_competition, row['competition_id'])
+            except Exception as exc:
+                await interaction.followup.send(
+                    f'WOM API error fetching competition {row["competition_id"]}: {exc}'
+                )
+                return
+            comp_type = types.infer_type_from_title(detail.get('title', ''))
+            if comp_type:
+                by_type[comp_type.key] = (row, detail)
 
-        if not botw_row or not sotw_row:
+        if 'botw' not in by_type or 'sotw' not in by_type:
             await interaction.followup.send(
                 'Competition data is incomplete in the DB. Cannot approve.',
             )
             return
 
-        def _pick(row):
+        def _pick(comp_type_key):
+            row, detail = by_type[comp_type_key]
             return {
-                'title': row['title'],
-                'metric_display': metrics.display_name(row['type'], row['metric']),
+                'title': detail['title'],
+                'metric_display': metrics.display_name(comp_type_key, detail['metric']),
                 'picker_text': _picker_mention(row['picker_user_id']),
             }
 
         text = announcements.build_kickoff_post(
-            cycle['starts_at'], cycle['ends_at'], _pick(botw_row), _pick(sotw_row)
+            cycle['starts_at'], cycle['ends_at'], _pick('botw'), _pick('sotw')
         )
 
         ann_channel_id = os.getenv('ANNOUNCEMENTS_CHANNEL')
