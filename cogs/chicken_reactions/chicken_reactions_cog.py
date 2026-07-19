@@ -1,33 +1,44 @@
-import random
 import re
 
-import discord
 from discord.ext import commands
 
-TRIGGER_WORDS = {
-    "egg",
-    "cluck",
-    "bawk",
-    "feathers",
-    "cock",
-    "chicken",
-    "corp",
-    "scared",
-    "rooster",
-    "coward",
-    "poultry",
-    "peck",
+from shared.emojis import CHICKEN_EMOJI, CHIKBOT_EMOJI, EGG_EMOJI, HATCHLING_EMOJI, ROOSTER_EMOJI
+
+SUBSTRING_WORD_EMOJIS = {
+    "egg": EGG_EMOJI,
+    "cock": ROOSTER_EMOJI,
+    "rooster": ROOSTER_EMOJI,
+    "scared": HATCHLING_EMOJI,
+    "coward": HATCHLING_EMOJI,
+    "chicken": CHICKEN_EMOJI,
+    "corp": CHICKEN_EMOJI,
+    "cluck": CHICKEN_EMOJI,
+    "bawk": CHICKEN_EMOJI,
+    "feathers": CHICKEN_EMOJI,
+    "poultry": CHICKEN_EMOJI,
+    "peck": CHICKEN_EMOJI,
 }
-REACTION_EMOJIS = ["🐔", "🐣", "🥚", "🐓"]
 
-_TRIGGER_PATTERN = re.compile(
-    r"\b(" + "|".join(re.escape(word) for word in TRIGGER_WORDS) + r")\b",
-    re.IGNORECASE,
-)
+WHOLE_WORD_EMOJIS = {
+    "bot": CHIKBOT_EMOJI,
+    "ai": CHIKBOT_EMOJI,
+}
+
+_WHOLE_WORD_PATTERNS = {
+    word: re.compile(rf"\b{re.escape(word)}\b", re.IGNORECASE)
+    for word in WHOLE_WORD_EMOJIS
+}
 
 
-def contains_trigger_word(content: str) -> bool:
-    return bool(_TRIGGER_PATTERN.search(content))
+def matching_emojis(content: str) -> set:
+    lowered = content.lower()
+    emojis = {emoji for word, emoji in SUBSTRING_WORD_EMOJIS.items() if word in lowered}
+    emojis |= {
+        WHOLE_WORD_EMOJIS[word]
+        for word, pattern in _WHOLE_WORD_PATTERNS.items()
+        if pattern.search(content)
+    }
+    return emojis
 
 
 class Chicken_Reactions(commands.Cog):
@@ -38,8 +49,8 @@ class Chicken_Reactions(commands.Cog):
     async def on_message(self, message):
         if message.author.bot:
             return
-        if contains_trigger_word(message.content):
-            await message.add_reaction(random.choice(REACTION_EMOJIS))
+        for emoji in matching_emojis(message.content):
+            await message.add_reaction(emoji)
 
 
 def setup(bot):
