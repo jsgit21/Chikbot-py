@@ -7,7 +7,7 @@ from discord.ext import tasks, commands
 from .rolecheck import get_misranked_users, bulk_update_outdated_users, get_user_roles, get_members_with_ranks
 from . import wom_utilities as utils
 from .identity import db as identity_db
-from .shared import checks
+from .shared import checks, tz
 import database.db_methods as database
 
 class Wise_Old_Man(commands.Cog):
@@ -126,7 +126,10 @@ class Wise_Old_Man(commands.Cog):
         names = ', '.join(member['rsn'] for member in sample)
         return f'-# Still unlinked: {names}. Use `/wom link` to connect them to a Discord member.'
 
-    @tasks.loop(time=datetime.time(hour=13, minute=00))
+    # tzinfo must stay explicit: discord.py's tasks.loop forces UTC on a naive
+    # time= regardless of the host OS's timezone, so a naive hour=9 here would
+    # actually fire at 9:00 UTC, not 9:00 AM ET.
+    @tasks.loop(time=datetime.time(hour=9, minute=0, tzinfo=tz.ET))
     async def update_wom_group(self):
         sync_message = self.sync_wom_group_to_db()
         if sync_message:
@@ -145,7 +148,10 @@ class Wise_Old_Man(commands.Cog):
         await self.bot.wait_until_ready()
 
 
-    @tasks.loop(time=datetime.time(hour=14, minute=00))
+    # tzinfo must stay explicit: discord.py's tasks.loop forces UTC on a naive
+    # time= regardless of the host OS's timezone, so a naive hour=10 here would
+    # actually fire at 10:00 UTC, not 10:00 AM ET.
+    @tasks.loop(time=datetime.time(hour=10, minute=0, tzinfo=tz.ET))
     async def rolecheck(self):
         try:
             update_users = get_misranked_users()
