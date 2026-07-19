@@ -23,8 +23,8 @@ chikbot = discord.Bot(intents=intents)
 # Cogs
 chikbot.load_extension('cogs.user_goals.user_goals')
 chikbot.load_extension('cogs.wise_old_man.wise_old_man')
-chikbot.load_extension('cogs.wise_old_man.identity.identitycog')
-chikbot.load_extension('cogs.wise_old_man.competitions.competitionscog')
+chikbot.load_extension('cogs.wise_old_man.identity.identity_cog')
+chikbot.load_extension('cogs.wise_old_man.competitions.competitions_cog')
 chikbot.load_extension('cogs.runescape_logger.runescape_logger')
 
 
