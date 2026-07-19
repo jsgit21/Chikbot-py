@@ -73,6 +73,10 @@ create table Discord.competition (
   verification_code varchar(64) null,
   nominator_user_id bigint unsigned null,
   results_status enum('pending', 'drafted', 'announcing', 'announced', 'deferred') default 'pending',
+  -- Only set for a standalone (solo) competition, tracking its kickoff-approval state.
+  -- Paired (OTW) competitions track this via competition_cycle.status instead, so
+  -- this stays null for them.
+  kickoff_status enum('drafted', 'announced') null,
   created_at timestamp default current_timestamp,
   constraint fk_competition_cycle foreign key (cycle_id) references Discord.competition_cycle (id)
 );

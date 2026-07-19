@@ -10,7 +10,7 @@ from shared import tz
 from ..identity import db as identity_db
 from ..shared import checks
 from . import announcements, db as comp_db, event_calendar, metrics, scheduling, types, winners, wom_api
-from .views import ConfirmCreateView, KickoffApprovalView, ResultsApprovalView
+from .views import ConfirmCreateView, KickoffApprovalView, ResultsApprovalView, SoloKickoffApprovalView
 
 
 class Competitions(commands.Cog):
@@ -37,6 +37,10 @@ class Competitions(commands.Cog):
         for row in drafted:
             self.bot.add_view(ResultsApprovalView(row['competition_id']))
         self.bot.add_view(KickoffApprovalView())
+
+        awaiting_kickoff = await asyncio.to_thread(comp_db.get_competitions_awaiting_kickoff)
+        for row in awaiting_kickoff:
+            self.bot.add_view(SoloKickoffApprovalView(row['competition_id']))
 
     # -------------------------------------------------------------------------
     # Monday detection loop
@@ -79,12 +83,38 @@ class Competitions(commands.Cog):
         await self.bot.wait_until_ready()
 
     # -------------------------------------------------------------------------
-    # /competition create
+    # /competition create-otw
     # -------------------------------------------------------------------------
 
-    @competition.command(description='Create the next BOTW/SOTW competitions and draft a kickoff post')
+    async def _build_side(self, guild, comp_type_key, metric, explicit_member, last_cycle,
+                           existing_row=None, existing_detail=None):
+        """Resolve the nominator and assemble one competition's preview payload.
+
+        existing_row / existing_detail: the resumed DB row and live WOM detail if this
+        side of a paired cycle was already created on a prior /competition create-otw
+        attempt. Always None for the standalone create() command, which has no resume
+        concept (solo competitions never get a cycle_id).
+        """
+        comp_type = types.TYPES[comp_type_key]
+        nominator_id, nominator_alias = await self._resolve_nominator(
+            guild, explicit_member, last_cycle, comp_type_key
+        )
+        display = metrics.display_name(comp_type_key, metric)
+        title = existing_detail['title'] if existing_detail else (
+            f"{display} - {comp_type.title_label} [{nominator_alias}'s pick]"
+        )
+        return {
+            'metric': existing_detail['metric'] if existing_detail else metric,
+            'metric_display': display, 'title': title,
+            'nominator_user_id': existing_row['nominator_user_id'] if existing_row else nominator_id,
+            'nominator_text': f'<@{nominator_id}>' if nominator_id else nominator_alias,
+            'existing_competition_id': existing_row['competition_id'] if existing_row else None,
+            'existing_verification_code': existing_row['verification_code'] if existing_row else None,
+        }
+
+    @competition.command(name='create-otw', description='Create the next BOTW/SOTW competitions and draft a kickoff post')
     @commands.check(checks.moderator_command)
-    async def create(self, ctx,
+    async def create_otw(self, ctx,
                      botw_metric: discord.Option(
                          str, 'Boss metric for BOTW',
                          autocomplete=metrics.autocomplete_botw_metric, required=True),
@@ -133,42 +163,18 @@ class Competitions(commands.Cog):
         existing_botw, existing_botw_detail = existing_by_type.get('botw', (None, None))
         existing_sotw, existing_sotw_detail = existing_by_type.get('sotw', (None, None))
 
-        botw_nominator_id, botw_nominator_alias = await self._resolve_nominator(
-            ctx.guild, botw_nominator, last_cycle, 'botw'
+        botw_side = await self._build_side(
+            ctx.guild, 'botw', botw_metric, botw_nominator, last_cycle, existing_botw, existing_botw_detail
         )
-        sotw_nominator_id, sotw_nominator_alias = await self._resolve_nominator(
-            ctx.guild, sotw_nominator, last_cycle, 'sotw'
-        )
-
-        botw_display = metrics.display_name('botw', botw_metric)
-        sotw_display = metrics.display_name('sotw', sotw_metric)
-        botw_title = existing_botw_detail['title'] if existing_botw_detail else (
-            f"{botw_display} - Boss of the Week [{botw_nominator_alias}'s pick]"
-        )
-        sotw_title = existing_sotw_detail['title'] if existing_sotw_detail else (
-            f"{sotw_display} - Skill of the Week [{sotw_nominator_alias}'s pick]"
+        sotw_side = await self._build_side(
+            ctx.guild, 'sotw', sotw_metric, sotw_nominator, last_cycle, existing_sotw, existing_sotw_detail
         )
 
         payload = {
             'starts_at': starts_at,
             'ends_at': ends_at,
             'cycle_id': existing_cycle['id'] if existing_cycle else None,
-            'botw': {
-                'metric': existing_botw_detail['metric'] if existing_botw_detail else botw_metric,
-                'metric_display': botw_display, 'title': botw_title,
-                'nominator_user_id': existing_botw['nominator_user_id'] if existing_botw else botw_nominator_id,
-                'nominator_text': f'<@{botw_nominator_id}>' if botw_nominator_id else botw_nominator_alias,
-                'existing_competition_id': existing_botw['competition_id'] if existing_botw else None,
-                'existing_verification_code': existing_botw['verification_code'] if existing_botw else None,
-            },
-            'sotw': {
-                'metric': existing_sotw_detail['metric'] if existing_sotw_detail else sotw_metric,
-                'metric_display': sotw_display, 'title': sotw_title,
-                'nominator_user_id': existing_sotw['nominator_user_id'] if existing_sotw else sotw_nominator_id,
-                'nominator_text': f'<@{sotw_nominator_id}>' if sotw_nominator_id else sotw_nominator_alias,
-                'existing_competition_id': existing_sotw['competition_id'] if existing_sotw else None,
-                'existing_verification_code': existing_sotw['verification_code'] if existing_sotw else None,
-            },
+            'sides': [botw_side, sotw_side],
         }
 
         start_et = starts_at
@@ -182,12 +188,61 @@ class Competitions(commands.Cog):
             )
         preview = (
             '**Preview — /competition create**\n\n'
-            f'**BOTW** — {botw_title}\n'
-            f'**SOTW** — {sotw_title}\n\n'
+            f'**BOTW** — {botw_side["title"]}\n'
+            f'**SOTW** — {sotw_side["title"]}\n\n'
             f'Runs **{start_et.strftime("%a %Y-%m-%d %H:%M")}** → '
             f'**{end_et.strftime("%a %Y-%m-%d %H:%M")} ET**\n'
             f'{resuming_note}\n'
             '-# Click **Confirm & Create** to create both competitions on WOM.'
+        )
+        await ctx.respond(preview, view=ConfirmCreateView(payload))
+
+    # -------------------------------------------------------------------------
+    # /competition create
+    # -------------------------------------------------------------------------
+
+    @competition.command(name='create', description='Create a single standalone competition and draft a kickoff post')
+    @commands.check(checks.moderator_command)
+    async def create(self, ctx,
+                     comp_type: discord.Option(
+                         str, 'Competition type',
+                         choices=[discord.OptionChoice(name=t.display_name, value=key) for key, t in types.TYPES.items()],
+                         required=True),
+                     metric: discord.Option(
+                         str, 'Metric for the competition',
+                         autocomplete=metrics.autocomplete_metric, required=True),
+                     weeks_out: discord.Option(
+                         int, 'Weeks beyond the next available Saturday (0 = next available)',
+                         required=False) = 0,
+                     nominator: discord.Option(
+                         discord.Member, 'Who nominated this competition (default: the group)',
+                         required=False) = None):
+        await ctx.defer()
+
+        if metric not in metrics.all_metrics_for(comp_type):
+            await ctx.respond(f'`{metric}` is not a valid metric for {comp_type}.', ephemeral=True)
+            return
+
+        last_cycle = await asyncio.to_thread(comp_db.get_last_cycle)
+        after = last_cycle['ends_at'] if last_cycle else datetime.datetime.now().date()
+        starts_at, ends_at = scheduling.next_cycle_window(after, weeks_out=weeks_out)
+
+        side = await self._build_side(ctx.guild, comp_type, metric, nominator, last_cycle)
+
+        payload = {
+            'starts_at': starts_at,
+            'ends_at': ends_at,
+            'cycle_id': None,
+            'comp_type_key': comp_type,
+            'sides': [side],
+        }
+
+        preview = (
+            '**Preview — /competition create**\n\n'
+            f'**{types.TYPES[comp_type].display_name}** — {side["title"]}\n\n'
+            f'Runs **{starts_at.strftime("%a %Y-%m-%d %H:%M")}** → '
+            f'**{ends_at.strftime("%a %Y-%m-%d %H:%M")} ET**\n\n'
+            '-# Click **Confirm & Create** to create this competition on WOM.'
         )
         await ctx.respond(preview, view=ConfirmCreateView(payload))
 
@@ -206,7 +261,10 @@ class Competitions(commands.Cog):
         if not last_cycle:
             return None, 'the group'
 
-        source_type = types.nominator_source_for(comp_type).key
+        source_type_obj = types.nominator_source_for(comp_type)
+        if not source_type_obj:
+            return None, 'the group'
+        source_type = source_type_obj.key
         comps = await asyncio.to_thread(comp_db.get_competitions_for_cycle, last_cycle['id'])
 
         winner = None

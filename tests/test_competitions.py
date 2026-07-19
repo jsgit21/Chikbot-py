@@ -227,6 +227,23 @@ def test_build_kickoff_post_includes_titles_and_nominators():
 
 
 # ---------------------------------------------------------------------------
+# announcements.build_solo_kickoff_post
+# ---------------------------------------------------------------------------
+
+def test_build_solo_kickoff_post_includes_title_and_nominator():
+    side = {'title': "Vorkath - Boss of the Week [mayo's pick]", 'metric_display': 'Vorkath', 'nominator_text': '<@1234>'}
+    starts_at = datetime.datetime(2026, 7, 4, 10, 0, tzinfo=tz.ET)
+    ends_at = datetime.datetime(2026, 7, 6, 0, 0, tzinfo=tz.ET)
+
+    text = announcements.build_solo_kickoff_post(types.TYPES['botw'], starts_at, ends_at, side)
+
+    assert "Vorkath - Boss of the Week [mayo's pick]" in text
+    assert 'nominated by <@1234>' in text
+    assert 'Sat 7/4 10:00 AM' in text
+    assert 'Mon 7/6 12:00 AM ET' in text
+
+
+# ---------------------------------------------------------------------------
 # wom_api.find_ended_competitions
 # ---------------------------------------------------------------------------
 

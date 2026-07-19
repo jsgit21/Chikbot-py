@@ -67,3 +67,22 @@ def build_kickoff_post(starts_at, ends_at, botw, sotw):
         Runs **{_format_dt(starts_at)}** → **{_format_dt(ends_at)} ET**
 
         -# It's all for fun, good luck and have fun training/bossing!""")
+
+
+def build_solo_kickoff_post(comp_type, starts_at, ends_at, side):
+    """Return the text of a standalone (non-OTW) competition's kickoff announcement.
+
+    starts_at / ends_at: naive ET (server-local) datetimes for the competition window.
+    side: dict with 'title' (the WOM competition title), 'metric_display', and
+    'nominator_text' (the nominator's @mention or plain alias/name).
+    """
+    return dedent(f"""\
+        {GM_EMOJI} everyone!
+
+        A new {comp_type.display_name} competition is scheduled:
+
+        {side["title"]} (nominated by {side["nominator_text"]})
+
+        Runs **{_format_dt(starts_at)}** → **{_format_dt(ends_at)} ET**
+
+        -# It's all for fun, good luck and have fun training/bossing!""")

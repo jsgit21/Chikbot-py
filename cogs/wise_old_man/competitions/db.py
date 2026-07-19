@@ -5,22 +5,25 @@ from ..shared.rsn import normalize_rsn
 
 
 def ensure_competition_row(competition_id, cycle_id=None, verification_code=None,
-                           nominator_user_id=None, testdb=None):
+                           nominator_user_id=None, kickoff_status=None, testdb=None):
     """Insert a competition row if one doesn't already exist for this id.
 
     Used both for a stray competition found by detection (bare row, no
     cycle_id/verification_code/nominator_user_id) and for a row created via
-    /competition create (all four set at once). A no-op if the row exists.
+    /competition create or create-otw (all set at once). A no-op if the row exists.
+    kickoff_status is only ever set for a standalone (solo) competition -- paired
+    competitions track this via competition_cycle.status instead, so it stays null
+    for them.
     """
     db = testdb if testdb else database.create_connection()
     cursor = db.cursor()
     cursor.execute(
         """
-        insert into competition (competition_id, cycle_id, verification_code, nominator_user_id)
-             values (%s, %s, %s, %s)
+        insert into competition (competition_id, cycle_id, verification_code, nominator_user_id, kickoff_status)
+             values (%s, %s, %s, %s, %s)
         on duplicate key update competition_id = competition_id
         """,
-        (competition_id, cycle_id, verification_code, nominator_user_id),
+        (competition_id, cycle_id, verification_code, nominator_user_id, kickoff_status),
     )
 
 
@@ -83,6 +86,23 @@ def get_drafted_competitions(testdb=None):
     cursor = db.cursor(pymysql.cursors.DictCursor)
     cursor.execute("select * from competition where results_status = 'drafted'")
     return cursor.fetchall()
+
+
+def get_competitions_awaiting_kickoff(testdb=None):
+    """Return solo competition rows whose kickoff announcement hasn't been approved yet."""
+    db = testdb if testdb else database.create_connection()
+    cursor = db.cursor(pymysql.cursors.DictCursor)
+    cursor.execute("select * from competition where kickoff_status = 'drafted'")
+    return cursor.fetchall()
+
+
+def set_kickoff_status(competition_id, status, testdb=None):
+    db = testdb if testdb else database.create_connection()
+    cursor = db.cursor()
+    cursor.execute(
+        'update competition set kickoff_status = %s where competition_id = %s',
+        (status, competition_id),
+    )
 
 
 def claim_cycle_for_publishing(cycle_id, testdb=None):

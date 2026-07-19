@@ -175,3 +175,15 @@ async def autocomplete_botw_metric(ctx: discord.AutocompleteContext):
 
 async def autocomplete_sotw_metric(ctx: discord.AutocompleteContext):
     return _matches(ctx.value, all_sotw_metrics())
+
+
+def all_metrics_for(comp_type_key):
+    """slug -> display name for every currently valid metric of the given competition type."""
+    return all_botw_metrics() if comp_type_key == 'botw' else all_sotw_metrics()
+
+
+async def autocomplete_metric(ctx: discord.AutocompleteContext):
+    comp_type_key = ctx.options.get('comp_type')
+    if comp_type_key not in ('botw', 'sotw'):
+        return []
+    return _matches(ctx.value, all_metrics_for(comp_type_key))

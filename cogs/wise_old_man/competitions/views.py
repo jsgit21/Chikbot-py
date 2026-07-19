@@ -1,12 +1,20 @@
 import asyncio
+import datetime
 import os
 
 import discord
 
+from shared import tz
 from . import db as comp_db
 from . import announcements, metrics, roles, types, winners, wom_api
 from ..shared import checks
 from .scheduling import to_wom_iso
+
+
+def to_local_dt(iso_str):
+    """Convert a WOM UTC ISO-8601 string to a naive ET (server-local) datetime."""
+    utc_dt = datetime.datetime.fromisoformat(iso_str.replace('Z', '+00:00'))
+    return utc_dt.astimezone(tz.ET).replace(tzinfo=None)
 
 
 class ApproveButton(discord.ui.Button):
@@ -136,9 +144,10 @@ class ConfirmCreateButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         payload = self.view.payload
+        sides = payload['sides']
 
         cycle_id = payload['cycle_id']
-        if cycle_id is None:
+        if cycle_id is None and len(sides) > 1:
             cycle_id = await asyncio.to_thread(
                 comp_db.insert_cycle, payload['starts_at'], payload['ends_at'], 'planned'
             )
@@ -147,64 +156,89 @@ class ConfirmCreateButton(discord.ui.Button):
             """Create side on WOM and persist it, unless a resumed cycle already has it."""
             if side['existing_competition_id']:
                 return None
-
             resp = await asyncio.to_thread(
                 wom_api.create_competition,
                 side['title'], side['metric'],
                 to_wom_iso(payload['starts_at']), to_wom_iso(payload['ends_at']),
             )
+            kickoff_status = 'drafted' if len(sides) == 1 else None
             await asyncio.to_thread(
                 comp_db.ensure_competition_row,
                 resp['competition']['id'], cycle_id,
-                resp['verificationCode'], side['nominator_user_id'],
+                resp['verificationCode'], side['nominator_user_id'], kickoff_status,
             )
             return resp
 
-        try:
-            await _ensure_side(payload['botw'])
-        except Exception as exc:
-            await interaction.followup.send(
-                f'Failed to create the BOTW competition on WOM: {exc}\n'
-                'Nothing was created — rerun `/competition create` to retry.',
-                ephemeral=True,
-            )
-            return
-
-        try:
-            await _ensure_side(payload['sotw'])
-        except Exception as exc:
-            await interaction.followup.send(
-                f'BOTW was created on WOM, but the SOTW competition failed: {exc}\n'
-                'Rerun `/competition create` with the same options to resume — '
-                'BOTW will not be duplicated.',
-                ephemeral=True,
-            )
-            return
+        created = []
+        for side in sides:
+            try:
+                resp = await _ensure_side(side)
+                competition_id = side['existing_competition_id'] or resp['competition']['id']
+                created.append((side, competition_id))
+            except Exception as exc:
+                if len(sides) > 1:
+                    mod_channel_id = checks.moderator_channel_id()
+                    mod_channel = interaction.client.get_channel(mod_channel_id)
+                    if created:
+                        note = (
+                            f"{created[0][0]['metric_display']} was created on WOM "
+                            f"(competition id {created[0][1]}) but its partner failed: {exc}\n"
+                            'This will **not** be announced or tracked as OTW — manual '
+                            'cleanup on WOM is up to you if you want it removed.'
+                        )
+                    else:
+                        note = f'Both sides failed before either was created on WOM: {exc}'
+                    if mod_channel:
+                        await mod_channel.send(f'**OTW pairing failed.**\n{note}')
+                    await interaction.followup.send(
+                        'Pairing failed — see the mod channel for details.', ephemeral=True
+                    )
+                else:
+                    await interaction.followup.send(
+                        f'Failed to create the competition on WOM: {exc}\n'
+                        'Nothing was created — rerun `/competition create` to retry.',
+                        ephemeral=True,
+                    )
+                return
 
         self.view.disable_all_items()
         await interaction.message.edit(view=self.view)
 
-        kickoff_text = announcements.build_kickoff_post(
-            payload['starts_at'], payload['ends_at'], payload['botw'], payload['sotw']
-        )
-        draft = (
-            '**[DRAFT] Kickoff Announcement — Pending Mod Approval**\n\n'
-            f'{kickoff_text}\n\n'
-            '-# Click **Approve & Post** to publish to the announcements channel.'
-        )
+        if len(sides) > 1:
+            kickoff_text = announcements.build_kickoff_post(
+                payload['starts_at'], payload['ends_at'], sides[0], sides[1]
+            )
+            draft = (
+                '**[DRAFT] Kickoff Announcement — Pending Mod Approval**\n\n'
+                f'{kickoff_text}\n\n'
+                '-# Click **Approve & Post** to publish to the announcements channel.'
+            )
+            approval_view = KickoffApprovalView()
+        else:
+            comp_type = types.TYPES[payload['comp_type_key']]
+            kickoff_text = announcements.build_solo_kickoff_post(
+                comp_type, payload['starts_at'], payload['ends_at'], sides[0]
+            )
+            draft = (
+                '**[DRAFT] Kickoff Announcement — Pending Mod Approval**\n\n'
+                f'{kickoff_text}\n\n'
+                '-# Click **Approve & Post** to publish to the announcements channel.'
+            )
+            approval_view = SoloKickoffApprovalView(created[0][1])
+
         mod_channel_id = checks.moderator_channel_id()
         mod_channel = interaction.client.get_channel(mod_channel_id)
         if mod_channel is None:
             await interaction.followup.send(
                 f'Moderator channel {mod_channel_id} not found — check MODERATOR_CHANNEL. '
-                'Both competitions were created on WOM; the kickoff post still needs to be sent.',
+                'The competition(s) were created on WOM; the kickoff post still needs to be sent.',
                 ephemeral=True,
             )
             return
-        await mod_channel.send(draft, view=KickoffApprovalView())
+        await mod_channel.send(draft, view=approval_view)
 
         await interaction.followup.send(
-            'Both competitions created on WOM. Kickoff post drafted for approval.',
+            'Competition(s) created on WOM. Kickoff post drafted for approval.',
             ephemeral=True,
         )
 
@@ -228,9 +262,14 @@ class ConfirmCreateView(discord.ui.View):
 
     payload: {
         'starts_at': datetime, 'ends_at': datetime,  # naive UTC
-        'botw': {'metric': slug, 'metric_display': str, 'title': str,
-                  'nominator_user_id': int or None, 'nominator_text': str},
-        'sotw': {...same shape...},
+        'cycle_id': int or None,
+        'comp_type_key': str,  # only present for a single-side (solo) payload
+        'sides': [
+            {'metric': slug, 'metric_display': str, 'title': str,
+             'nominator_user_id': int or None, 'nominator_text': str,
+             'existing_competition_id': int or None, 'existing_verification_code': str or None},
+            ...  # one dict for solo, two (botw, sotw) for a pair
+        ],
     }
     """
 
@@ -380,6 +419,108 @@ class KickoffApprovalView(discord.ui.View):
         super().__init__(timeout=None)
         self.add_item(ApproveKickoffButton())
         self.add_item(DismissKickoffButton())
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not checks.moderator_interaction(interaction):
+            await interaction.response.send_message(
+                'Moderators only, in the mod channel.', ephemeral=True)
+            return False
+        return True
+
+
+# -----------------------------------------------------------------------------
+# Solo (standalone) competition kickoff announcement approval gate
+# -----------------------------------------------------------------------------
+
+class ApproveSoloKickoffButton(discord.ui.Button):
+    def __init__(self, competition_id):
+        super().__init__(
+            label='Approve & Post',
+            style=discord.ButtonStyle.green,
+            custom_id=f'comp_approve_solo_kickoff:{competition_id}',
+        )
+        self.competition_id = competition_id
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+
+        try:
+            detail = await asyncio.to_thread(wom_api.get_competition, self.competition_id)
+        except Exception as exc:
+            await interaction.followup.send(f'WOM API error re-fetching competition: {exc}')
+            return
+
+        comp_type = types.infer_type_from_title(detail.get('title', ''))
+        if comp_type is None:
+            await interaction.followup.send(
+                f'Competition title "{detail.get("title")}" no longer matches a known competition type.'
+            )
+            return
+
+        row = await asyncio.to_thread(comp_db.get_competition_by_id, self.competition_id)
+        nominator_user_id = row['nominator_user_id'] if row else None
+        side = {
+            'title': detail['title'],
+            'metric_display': metrics.display_name(comp_type.key, detail['metric']),
+            'nominator_text': _nominator_mention(nominator_user_id),
+        }
+        starts_at = to_local_dt(detail['startsAt'])
+        ends_at = to_local_dt(detail['endsAt'])
+        text = announcements.build_solo_kickoff_post(comp_type, starts_at, ends_at, side)
+
+        ann_channel_id = os.getenv('ANNOUNCEMENTS_CHANNEL')
+        if not ann_channel_id:
+            await interaction.followup.send(
+                'ANNOUNCEMENTS_CHANNEL is not set. Set the env var and redeploy.',
+            )
+            return
+
+        ann_channel = interaction.client.get_channel(int(ann_channel_id))
+        if ann_channel is None:
+            await interaction.followup.send(
+                f'Announcements channel {ann_channel_id} not found — check ANNOUNCEMENTS_CHANNEL.',
+            )
+            return
+
+        await ann_channel.send(text)
+
+        await asyncio.to_thread(comp_db.set_kickoff_status, self.competition_id, 'announced')
+
+        self.view.disable_all_items()
+        await interaction.message.edit(view=self.view)
+        await interaction.followup.send('Kickoff post published.')
+
+
+class DismissSoloKickoffButton(discord.ui.Button):
+    def __init__(self, competition_id):
+        super().__init__(
+            label='Dismiss',
+            style=discord.ButtonStyle.red,
+            custom_id=f'comp_dismiss_solo_kickoff:{competition_id}',
+        )
+        self.competition_id = competition_id
+
+    async def callback(self, interaction: discord.Interaction):
+        await asyncio.to_thread(comp_db.set_kickoff_status, self.competition_id, 'announced')
+
+        self.view.disable_all_items()
+        await interaction.message.edit(view=self.view)
+        await interaction.response.send_message('Dismissed.')
+
+
+class SoloKickoffApprovalView(discord.ui.View):
+    """Persistent approval gate for a standalone (non-OTW) competition's kickoff.
+
+    Keyed by competition_id (unlike KickoffApprovalView, which is keyed by cycle and
+    requires both a BOTW and SOTW side) since solo competitions never get a cycle_id.
+    The bot must call bot.add_view(SoloKickoffApprovalView(competition_id)) in on_ready
+    for every still-drafted solo kickoff to re-register the handler after a restart.
+    """
+
+    def __init__(self, competition_id):
+        super().__init__(timeout=None)
+        self.add_item(ApproveSoloKickoffButton(competition_id))
+        self.add_item(DismissSoloKickoffButton(competition_id))
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if not checks.moderator_interaction(interaction):

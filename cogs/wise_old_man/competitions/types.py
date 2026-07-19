@@ -13,6 +13,7 @@ class CompetitionType:
     gained_unit: str
     winner_role_env: str
     title_keywords: list[str]
+    title_label: str
     feeds_nominator_for: str
 
 
@@ -23,6 +24,7 @@ TYPES = {
         gained_unit='KC',
         winner_role_env='BOTW_WINNER_ROLE',
         title_keywords=['boss of the week'],
+        title_label='Boss of the Week',
         feeds_nominator_for='sotw',
     ),
     'sotw': CompetitionType(
@@ -31,6 +33,7 @@ TYPES = {
         gained_unit='XP',
         winner_role_env='SOTW_WINNER_ROLE',
         title_keywords=['skill of the week'],
+        title_label='Skill of the Week',
         feeds_nominator_for='botw',
     ),
 }
