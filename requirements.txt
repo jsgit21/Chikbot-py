@@ -2,7 +2,6 @@ py-cord
 python-dotenv
 pymysql
 pytest
-pytest-asyncio
 requests
 cryptography
 tzdata
