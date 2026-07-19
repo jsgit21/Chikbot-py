@@ -4,7 +4,20 @@ import re
 import discord
 from discord.ext import commands
 
-TRIGGER_WORDS = {"egg", "cluck", "bawk", "feathers", "bok bok"}
+TRIGGER_WORDS = {
+    "egg",
+    "cluck",
+    "bawk",
+    "feathers",
+    "cock",
+    "chicken",
+    "corp",
+    "scared",
+    "rooster",
+    "coward",
+    "poultry",
+    "peck",
+}
 REACTION_EMOJIS = ["🐔", "🐣", "🥚", "🐓"]
 
 _TRIGGER_PATTERN = re.compile(
