@@ -26,21 +26,21 @@ def build_result_post(comp_type, winner):
     winner: dict from winners.resolve_winner(), or None.
     A linked winner is @mentioned; an unlinked one is shown as plain @rsn.
     """
-    lines = [f'**{comp_type.display_name} Results**', '']
+    if not winner:
+        return dedent(f"""\
+            **{comp_type.display_name} Results**
 
-    if winner:
-        mention = _mention(winner)
-        label = _gained_label(comp_type, winner.get('gained'))
-        lines.append(f'{mention} with **{label}** (`{winner["rsn"]}`)')
-        lines += [
-            '',
-            f"Congrats! Your pick decides next cycle's "
-            f'{types.TYPES[comp_type.feeds_picker_for].display_name} target.',
-        ]
-    else:
-        lines.append('No winner data available.')
+            No winner data available.""")
 
-    return '\n'.join(lines)
+    mention = _mention(winner)
+    label = _gained_label(comp_type, winner.get('gained'))
+    next_target = types.TYPES[comp_type.feeds_nominator_for].display_name
+    return dedent(f"""\
+        **{comp_type.display_name} Results**
+
+        {mention} with **{label}** (`{winner["rsn"]}`)
+
+        Congrats! Your pick decides next cycle's {next_target} target.""")
 
 
 def _format_dt(dt_et):
@@ -54,15 +54,15 @@ def build_kickoff_post(starts_at, ends_at, botw, sotw):
 
     starts_at / ends_at: naive ET (server-local) datetimes for the new cycle window.
     botw / sotw: dicts with 'title' (the WOM competition title), 'metric_display',
-    and 'picker_text' (the picker's @mention or plain alias/name).
+    and 'nominator_text' (the nominator's @mention or plain alias/name).
     """
     return dedent(f"""\
         {GM_EMOJI} everyone!
 
         The next BOTW/SOTW rotation is scheduled:
 
-        **BOTW** — {botw["title"]} (picked by {botw["picker_text"]})
-        **SOTW** — {sotw["title"]} (picked by {sotw["picker_text"]})
+        **BOTW** — {botw["title"]} (nominated by {botw["nominator_text"]})
+        **SOTW** — {sotw["title"]} (nominated by {sotw["nominator_text"]})
 
         Runs **{_format_dt(starts_at)}** → **{_format_dt(ends_at)} ET**
 

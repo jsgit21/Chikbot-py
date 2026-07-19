@@ -13,7 +13,7 @@ class CompetitionType:
     gained_unit: str
     winner_role_env: str
     title_keywords: list[str]
-    feeds_picker_for: str
+    feeds_nominator_for: str
 
 
 TYPES = {
@@ -23,7 +23,7 @@ TYPES = {
         gained_unit='KC',
         winner_role_env='BOTW_WINNER_ROLE',
         title_keywords=['boss of the week'],
-        feeds_picker_for='sotw',
+        feeds_nominator_for='sotw',
     ),
     'sotw': CompetitionType(
         key='sotw',
@@ -31,7 +31,7 @@ TYPES = {
         gained_unit='XP',
         winner_role_env='SOTW_WINNER_ROLE',
         title_keywords=['skill of the week'],
-        feeds_picker_for='botw',
+        feeds_nominator_for='botw',
     ),
 }
 
@@ -45,12 +45,12 @@ def infer_type_from_title(title):
     return None
 
 
-def picker_source_for(comp_type_key):
-    """The type whose winner feeds this type's next picker (reverse lookup
-    over feeds_picker_for — there are only two types today, so this is a
+def nominator_source_for(comp_type_key):
+    """The type whose winner feeds this type's next nominator (reverse lookup
+    over feeds_nominator_for — there are only two types today, so this is a
     simple linear scan, not a dict).
     """
     for comp_type in TYPES.values():
-        if comp_type.feeds_picker_for == comp_type_key:
+        if comp_type.feeds_nominator_for == comp_type_key:
             return comp_type
     return None

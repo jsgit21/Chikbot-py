@@ -156,7 +156,7 @@ class ConfirmCreateButton(discord.ui.Button):
             await asyncio.to_thread(
                 comp_db.ensure_competition_row,
                 resp['competition']['id'], cycle_id,
-                resp['verificationCode'], side['picker_user_id'],
+                resp['verificationCode'], side['nominator_user_id'],
             )
             return resp
 
@@ -229,7 +229,7 @@ class ConfirmCreateView(discord.ui.View):
     payload: {
         'starts_at': datetime, 'ends_at': datetime,  # naive UTC
         'botw': {'metric': slug, 'metric_display': str, 'title': str,
-                  'picker_user_id': int or None, 'picker_text': str},
+                  'nominator_user_id': int or None, 'nominator_text': str},
         'sotw': {...same shape...},
     }
     """
@@ -252,8 +252,8 @@ class ConfirmCreateView(discord.ui.View):
 # Kickoff announcement approval gate
 # -----------------------------------------------------------------------------
 
-def _picker_mention(picker_user_id):
-    return f'<@{picker_user_id}>' if picker_user_id else 'the group'
+def _nominator_mention(nominator_user_id):
+    return f'<@{nominator_user_id}>' if nominator_user_id else 'the group'
 
 
 class ApproveKickoffButton(discord.ui.Button):
@@ -308,7 +308,7 @@ class ApproveKickoffButton(discord.ui.Button):
             return {
                 'title': detail['title'],
                 'metric_display': metrics.display_name(comp_type_key, detail['metric']),
-                'picker_text': _picker_mention(row['picker_user_id']),
+                'nominator_text': _nominator_mention(row['nominator_user_id']),
             }
 
         text = announcements.build_kickoff_post(

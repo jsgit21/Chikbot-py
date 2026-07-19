@@ -58,7 +58,7 @@ create table Discord.competition_cycle (
   id int unsigned primary key auto_increment,
   starts_at datetime not null,
   ends_at datetime not null,
-  status enum('planned', 'publishing', 'active', 'ended', 'announcing', 'announced', 'deferred') default 'planned',
+  status enum('planned', 'publishing', 'active', 'ended') default 'planned',
   created_at timestamp default current_timestamp
 );
 
@@ -71,7 +71,7 @@ create table Discord.competition (
   competition_id int unsigned primary key,
   cycle_id int unsigned null,
   verification_code varchar(64) null,
-  picker_user_id bigint unsigned null,
+  nominator_user_id bigint unsigned null,
   results_status enum('pending', 'drafted', 'announcing', 'announced', 'deferred') default 'pending',
   created_at timestamp default current_timestamp,
   constraint fk_competition_cycle foreign key (cycle_id) references Discord.competition_cycle (id)

@@ -94,11 +94,11 @@ class Competitions(commands.Cog):
                      weeks_out: discord.Option(
                          int, 'Weeks beyond the next available Saturday (0 = next available)',
                          required=False) = 0,
-                     botw_picker: discord.Option(
-                         discord.Member, "Who picked the BOTW boss (default: last cycle's SOTW winner)",
+                     botw_nominator: discord.Option(
+                         discord.Member, "Who nominated the BOTW boss (default: last cycle's SOTW winner)",
                          required=False) = None,
-                     sotw_picker: discord.Option(
-                         discord.Member, "Who picked the SOTW skill (default: last cycle's BOTW winner)",
+                     sotw_nominator: discord.Option(
+                         discord.Member, "Who nominated the SOTW skill (default: last cycle's BOTW winner)",
                          required=False) = None):
         await ctx.defer()
 
@@ -133,20 +133,20 @@ class Competitions(commands.Cog):
         existing_botw, existing_botw_detail = existing_by_type.get('botw', (None, None))
         existing_sotw, existing_sotw_detail = existing_by_type.get('sotw', (None, None))
 
-        botw_picker_id, botw_picker_alias = await self._resolve_picker(
-            ctx.guild, botw_picker, last_cycle, 'botw'
+        botw_nominator_id, botw_nominator_alias = await self._resolve_nominator(
+            ctx.guild, botw_nominator, last_cycle, 'botw'
         )
-        sotw_picker_id, sotw_picker_alias = await self._resolve_picker(
-            ctx.guild, sotw_picker, last_cycle, 'sotw'
+        sotw_nominator_id, sotw_nominator_alias = await self._resolve_nominator(
+            ctx.guild, sotw_nominator, last_cycle, 'sotw'
         )
 
         botw_display = metrics.display_name('botw', botw_metric)
         sotw_display = metrics.display_name('sotw', sotw_metric)
         botw_title = existing_botw_detail['title'] if existing_botw_detail else (
-            f"{botw_display} - Boss of the Week [{botw_picker_alias}'s pick]"
+            f"{botw_display} - Boss of the Week [{botw_nominator_alias}'s pick]"
         )
         sotw_title = existing_sotw_detail['title'] if existing_sotw_detail else (
-            f"{sotw_display} - Skill of the Week [{sotw_picker_alias}'s pick]"
+            f"{sotw_display} - Skill of the Week [{sotw_nominator_alias}'s pick]"
         )
 
         payload = {
@@ -156,16 +156,16 @@ class Competitions(commands.Cog):
             'botw': {
                 'metric': existing_botw_detail['metric'] if existing_botw_detail else botw_metric,
                 'metric_display': botw_display, 'title': botw_title,
-                'picker_user_id': existing_botw['picker_user_id'] if existing_botw else botw_picker_id,
-                'picker_text': f'<@{botw_picker_id}>' if botw_picker_id else botw_picker_alias,
+                'nominator_user_id': existing_botw['nominator_user_id'] if existing_botw else botw_nominator_id,
+                'nominator_text': f'<@{botw_nominator_id}>' if botw_nominator_id else botw_nominator_alias,
                 'existing_competition_id': existing_botw['competition_id'] if existing_botw else None,
                 'existing_verification_code': existing_botw['verification_code'] if existing_botw else None,
             },
             'sotw': {
                 'metric': existing_sotw_detail['metric'] if existing_sotw_detail else sotw_metric,
                 'metric_display': sotw_display, 'title': sotw_title,
-                'picker_user_id': existing_sotw['picker_user_id'] if existing_sotw else sotw_picker_id,
-                'picker_text': f'<@{sotw_picker_id}>' if sotw_picker_id else sotw_picker_alias,
+                'nominator_user_id': existing_sotw['nominator_user_id'] if existing_sotw else sotw_nominator_id,
+                'nominator_text': f'<@{sotw_nominator_id}>' if sotw_nominator_id else sotw_nominator_alias,
                 'existing_competition_id': existing_sotw['competition_id'] if existing_sotw else None,
                 'existing_verification_code': existing_sotw['verification_code'] if existing_sotw else None,
             },
@@ -191,8 +191,8 @@ class Competitions(commands.Cog):
         )
         await ctx.respond(preview, view=ConfirmCreateView(payload))
 
-    async def _resolve_picker(self, guild, explicit_member, last_cycle, comp_type):
-        """Return (picker_user_id, picker_alias) for a BOTW/SOTW pick.
+    async def _resolve_nominator(self, guild, explicit_member, last_cycle, comp_type):
+        """Return (nominator_user_id, nominator_alias) for a BOTW/SOTW pick.
 
         An explicit member selection wins; otherwise defaults to the
         cross-assigned winner from the last cycle (BOTW winner picks the
@@ -206,7 +206,7 @@ class Competitions(commands.Cog):
         if not last_cycle:
             return None, 'the group'
 
-        source_type = types.picker_source_for(comp_type).key
+        source_type = types.nominator_source_for(comp_type).key
         comps = await asyncio.to_thread(comp_db.get_competitions_for_cycle, last_cycle['id'])
 
         winner = None

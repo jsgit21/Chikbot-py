@@ -10,6 +10,7 @@ import unittest.mock as mock
 import pytest
 
 from cogs.wise_old_man.competitions import announcements, event_calendar, types, wom_api, winners
+from shared import tz
 
 
 # ---------------------------------------------------------------------------
@@ -205,15 +206,15 @@ def test_build_result_post_none_winner():
 # announcements.build_kickoff_post
 # ---------------------------------------------------------------------------
 
-def _pick(title, metric_display, picker_text):
-    return {'title': title, 'metric_display': metric_display, 'picker_text': picker_text}
+def _nominate(title, metric_display, nominator_text):
+    return {'title': title, 'metric_display': metric_display, 'nominator_text': nominator_text}
 
 
-def test_build_kickoff_post_includes_titles_and_pickers():
-    botw = _pick("Vorkath - Boss of the Week [mayo's pick]", 'Vorkath', '<@1234>')
-    sotw = _pick("Runecrafting - Skill of the Week [crab's pick]", 'Runecrafting', '@peppy')
-    starts_at = datetime.datetime(2026, 7, 4, 10, 0)  # 10:00 ET
-    ends_at = datetime.datetime(2026, 7, 6, 0, 0)     # 00:00 ET
+def test_build_kickoff_post_includes_titles_and_nominators():
+    botw = _nominate("Vorkath - Boss of the Week [mayo's pick]", 'Vorkath', '<@1234>')
+    sotw = _nominate("Runecrafting - Skill of the Week [crab's pick]", 'Runecrafting', '@peppy')
+    starts_at = datetime.datetime(2026, 7, 4, 10, 0, tzinfo=tz.ET)
+    ends_at = datetime.datetime(2026, 7, 6, 0, 0, tzinfo=tz.ET)
 
     text = announcements.build_kickoff_post(starts_at, ends_at, botw, sotw)
 
