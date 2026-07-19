@@ -5,7 +5,7 @@ from discord.ext import commands
 from shared.emojis import CHICKEN_EMOJI, CHIKBOT_EMOJI, EGG_EMOJI, HATCHLING_EMOJI, ROOSTER_EMOJI
 
 SUBSTRING_WORD_EMOJIS = {
-    "egg": EGG_EMOJI,
+    "eggs": EGG_EMOJI,
     "cock": ROOSTER_EMOJI,
     "rooster": ROOSTER_EMOJI,
     "scared": HATCHLING_EMOJI,
@@ -20,6 +20,7 @@ SUBSTRING_WORD_EMOJIS = {
 }
 
 WHOLE_WORD_EMOJIS = {
+    "egg": EGG_EMOJI,
     "bot": CHIKBOT_EMOJI,
     "ai": CHIKBOT_EMOJI,
 }
