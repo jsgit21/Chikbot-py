@@ -116,7 +116,7 @@ class Wise_Old_Man(commands.Cog):
             return msg
         return None
 
-    @tasks.loop(time=datetime.time(hour=13, minute=00))
+    @tasks.loop(time=datetime.time(hour=9, minute=00))
     async def update_wom_group(self):
         sync_message = self.sync_wom_group_to_db()
         if sync_message:
@@ -131,7 +131,7 @@ class Wise_Old_Man(commands.Cog):
         await self.bot.wait_until_ready()
 
 
-    @tasks.loop(time=datetime.time(hour=14, minute=00))
+    @tasks.loop(time=datetime.time(hour=10, minute=00))
     async def rolecheck(self):
         try:
             update_users = get_misranked_users()
