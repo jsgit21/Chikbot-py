@@ -1,3 +1,7 @@
+from textwrap import dedent
+
+from shared.emojis import GM_EMOJI
+
 from . import types
 
 
@@ -52,17 +56,14 @@ def build_kickoff_post(starts_at, ends_at, botw, sotw):
     botw / sotw: dicts with 'title' (the WOM competition title), 'metric_display',
     and 'picker_text' (the picker's @mention or plain alias/name).
     """
-    lines = [
-        'GM everyone! :sunny:',
-        '',
-        'The next BOTW/SOTW rotation is scheduled:',
-        '',
-        f'**BOTW** — {botw["title"]} (picked by {botw["picker_text"]})',
-        f'**SOTW** — {sotw["title"]} (picked by {sotw["picker_text"]})',
-        '',
-        f'Runs **{_format_dt(starts_at)}** → **{_format_dt(ends_at)} ET**',
-        '',
-        "-# It's all for fun, good luck and have fun training/bossing!",
-    ]
+    return dedent(f"""\
+        {GM_EMOJI} everyone!
 
-    return '\n'.join(lines)
+        The next BOTW/SOTW rotation is scheduled:
+
+        **BOTW** — {botw["title"]} (picked by {botw["picker_text"]})
+        **SOTW** — {sotw["title"]} (picked by {sotw["picker_text"]})
+
+        Runs **{_format_dt(starts_at)}** → **{_format_dt(ends_at)} ET**
+
+        -# It's all for fun, good luck and have fun training/bossing!""")

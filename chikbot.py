@@ -5,13 +5,13 @@ import random
 
 from dotenv import load_dotenv
 import database.db_methods as database
+from shared.emojis import GM_EMOJI
 
 load_dotenv()
 TOKEN = os.getenv('TOKEN')
 DEV_CHANNEL_ID = int(os.getenv('PERSONAL_DEV_CHANNEL'))
 GM_CHANNEL_ID = int(os.getenv('GM_CHANNEL'))
 CHIKBOT_ID = int(os.getenv('CHIKBOT_ID'))
-GM_EMOJI = discord.PartialEmoji(name='gm', id=874033154313314414)
 
 intents = discord.Intents.default()
 intents.message_content = True
