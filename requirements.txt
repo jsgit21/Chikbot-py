@@ -3,5 +3,4 @@ python-dotenv
 pymysql
 pytest
 requests
-discord
 cryptography
