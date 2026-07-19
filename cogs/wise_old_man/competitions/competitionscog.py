@@ -6,8 +6,9 @@ import discord
 from discord.ext import commands, tasks
 
 import database.db_methods as db_methods
+from shared import tz
 from ..identity import db as identity_db
-from ..shared import checks, tz
+from ..shared import checks
 from . import announcements, db as comp_db, event_calendar, metrics, scheduling, types, winners, wom_api
 from .views import ConfirmCreateView, KickoffApprovalView, ResultsApprovalView
 

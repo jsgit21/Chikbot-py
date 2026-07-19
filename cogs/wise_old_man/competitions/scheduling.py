@@ -7,7 +7,7 @@ after the end Monday (a mandatory week+weekend break between cycles).
 
 import datetime
 
-from ..shared import tz
+from shared import tz
 
 _SATURDAY = 5
 
