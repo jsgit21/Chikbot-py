@@ -18,7 +18,8 @@ def _next_weekday_on_or_after(d, weekday):
 
 
 def next_cycle_window(after, weeks_out=0):
-    """Return (starts_at, ends_at) as naive UTC datetimes for the next cycle.
+    """Return (starts_at, ends_at) as naive datetimes in ET (server-local time)
+    for the next cycle.
 
     `after` is the previous cycle's end (a date or datetime); the next cycle
     starts on the second Saturday after it, i.e. one full break week beyond
@@ -33,21 +34,15 @@ def next_cycle_window(after, weeks_out=0):
     first_saturday = _next_weekday_on_or_after(after_date + datetime.timedelta(days=1), _SATURDAY)
     start_date = first_saturday + datetime.timedelta(weeks=1 + weeks_out)
 
-    starts_at_et = datetime.datetime(
-        start_date.year, start_date.month, start_date.day, 10, 0, tzinfo=tz.ET
-    )
+    starts_at = datetime.datetime(start_date.year, start_date.month, start_date.day, 10, 0)
     end_date = start_date + datetime.timedelta(days=2)
-    ends_at_et = datetime.datetime(
-        end_date.year, end_date.month, end_date.day, 0, 0, tzinfo=tz.ET
-    )
-
-    starts_at_utc = starts_at_et.astimezone(datetime.timezone.utc).replace(tzinfo=None)
-    ends_at_utc = ends_at_et.astimezone(datetime.timezone.utc).replace(tzinfo=None)
-    return starts_at_utc, ends_at_utc
+    ends_at = datetime.datetime(end_date.year, end_date.month, end_date.day, 0, 0)
+    return starts_at, ends_at
 
 
-def to_wom_iso(dt_utc):
-    """Format a naive UTC datetime as the ISO-8601 string the WOM API expects."""
+def to_wom_iso(dt_et):
+    """Convert a naive ET (server-local) datetime to the UTC ISO-8601 string WOM expects."""
+    dt_utc = dt_et.replace(tzinfo=tz.ET).astimezone(datetime.timezone.utc)
     return dt_utc.strftime('%Y-%m-%dT%H:%M:%S.000Z')
 
 

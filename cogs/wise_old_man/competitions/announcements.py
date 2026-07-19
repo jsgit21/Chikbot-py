@@ -1,6 +1,3 @@
-import datetime
-
-from ..shared import tz
 from . import types
 
 
@@ -42,10 +39,6 @@ def build_result_post(comp_type, winner):
     return '\n'.join(lines)
 
 
-def _to_et(dt_utc):
-    return dt_utc.replace(tzinfo=datetime.timezone.utc).astimezone(tz.ET)
-
-
 def _format_dt(dt_et):
     # Portable equivalent of strftime('%-m/%-d %-I:%M %p') — Windows lacks '-'.
     hour12 = dt_et.hour % 12 or 12
@@ -55,13 +48,10 @@ def _format_dt(dt_et):
 def build_kickoff_post(starts_at, ends_at, botw, sotw):
     """Return the text of the next cycle's kickoff announcement.
 
-    starts_at / ends_at: naive UTC datetimes for the new cycle window.
+    starts_at / ends_at: naive ET (server-local) datetimes for the new cycle window.
     botw / sotw: dicts with 'title' (the WOM competition title), 'metric_display',
     and 'picker_text' (the picker's @mention or plain alias/name).
     """
-    start_et = _to_et(starts_at)
-    end_et = _to_et(ends_at)
-
     lines = [
         'GM everyone! :sunny:',
         '',
@@ -70,7 +60,7 @@ def build_kickoff_post(starts_at, ends_at, botw, sotw):
         f'**BOTW** — {botw["title"]} (picked by {botw["picker_text"]})',
         f'**SOTW** — {sotw["title"]} (picked by {sotw["picker_text"]})',
         '',
-        f'Runs **{_format_dt(start_et)}** → **{_format_dt(end_et)} ET**',
+        f'Runs **{_format_dt(starts_at)}** → **{_format_dt(ends_at)} ET**',
         '',
         "-# It's all for fun, good luck and have fun training/bossing!",
     ]

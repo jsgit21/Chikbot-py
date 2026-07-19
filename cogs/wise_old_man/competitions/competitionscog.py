@@ -41,9 +41,12 @@ class Competitions(commands.Cog):
     # Monday detection loop
     # -------------------------------------------------------------------------
 
+    # tzinfo must stay explicit: discord.py's tasks.loop forces UTC on a naive
+    # time= regardless of the host OS's timezone, so dropping this would silently
+    # shift the loop off its intended ET wall-clock time.
     @tasks.loop(time=datetime.time(hour=12, minute=0, tzinfo=tz.ET))
     async def winner_detection(self):
-        if datetime.datetime.now(tz.ET).weekday() != 0:
+        if datetime.datetime.now().weekday() != 0:
             return
         await self._run_winner_detection()
 
@@ -55,6 +58,9 @@ class Competitions(commands.Cog):
     # Live metric list refresh
     # -------------------------------------------------------------------------
 
+    # tzinfo must stay explicit: discord.py's tasks.loop forces UTC on a naive
+    # time= regardless of the host OS's timezone, so dropping this would silently
+    # shift the loop off its intended ET wall-clock time.
     @tasks.loop(time=datetime.time(hour=13, minute=30, tzinfo=tz.ET))
     async def refresh_metrics(self):
         rsn = await asyncio.to_thread(comp_db.get_any_group_rsn)
@@ -103,7 +109,7 @@ class Competitions(commands.Cog):
             return
 
         last_cycle = await asyncio.to_thread(comp_db.get_last_cycle)
-        after = last_cycle['ends_at'] if last_cycle else datetime.datetime.now(tz.ET).date()
+        after = last_cycle['ends_at'] if last_cycle else datetime.datetime.now().date()
         starts_at, ends_at = scheduling.next_cycle_window(after, weeks_out=weeks_out)
 
         existing_cycle = await asyncio.to_thread(
@@ -164,8 +170,8 @@ class Competitions(commands.Cog):
             },
         }
 
-        start_et = starts_at.replace(tzinfo=datetime.timezone.utc).astimezone(tz.ET)
-        end_et = ends_at.replace(tzinfo=datetime.timezone.utc).astimezone(tz.ET)
+        start_et = starts_at
+        end_et = ends_at
         resuming_note = ''
         if existing_cycle:
             done = [t for t, c in (('BOTW', existing_botw), ('SOTW', existing_sotw)) if c]
@@ -335,7 +341,7 @@ class Competitions(commands.Cog):
             return
 
         weeks_since = scheduling.weeks_since_last_cycle(
-            last_cycle['ends_at'], datetime.datetime.now(tz.ET).date()
+            last_cycle['ends_at'], datetime.datetime.now().date()
         )
 
         if weeks_since <= 2:

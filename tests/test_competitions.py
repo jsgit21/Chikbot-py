@@ -212,8 +212,8 @@ def _pick(title, metric_display, picker_text):
 def test_build_kickoff_post_includes_titles_and_pickers():
     botw = _pick("Vorkath - Boss of the Week [mayo's pick]", 'Vorkath', '<@1234>')
     sotw = _pick("Runecrafting - Skill of the Week [crab's pick]", 'Runecrafting', '@peppy')
-    starts_at = datetime.datetime(2026, 7, 4, 14, 0)  # 10:00 ET
-    ends_at = datetime.datetime(2026, 7, 6, 4, 0)     # 00:00 ET
+    starts_at = datetime.datetime(2026, 7, 4, 10, 0)  # 10:00 ET
+    ends_at = datetime.datetime(2026, 7, 6, 0, 0)     # 00:00 ET
 
     text = announcements.build_kickoff_post(starts_at, ends_at, botw, sotw)
 
