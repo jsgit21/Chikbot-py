@@ -11,7 +11,6 @@ SUBSTRING_WORD_EMOJIS = {
     "scared": HATCHLING_EMOJI,
     "coward": HATCHLING_EMOJI,
     "chicken": CHICKEN_EMOJI,
-    "corp": CHICKEN_EMOJI,
     "cluck": CHICKEN_EMOJI,
     "bawk": CHICKEN_EMOJI,
     "feathers": CHICKEN_EMOJI,
@@ -23,6 +22,10 @@ WHOLE_WORD_EMOJIS = {
     "egg": EGG_EMOJI,
     "bot": CHIKBOT_EMOJI,
     "ai": CHIKBOT_EMOJI,
+    "corp": CHICKEN_EMOJI,
+    "corporeal beast": CHICKEN_EMOJI,
+    "kree": CHICKEN_EMOJI,
+    "kree'arra": CHICKEN_EMOJI,
 }
 
 _WHOLE_WORD_PATTERNS = {
