@@ -5,6 +5,7 @@ from discord.ext import tasks, commands
 
 from .rolecheck import get_misranked_users, bulk_update_outdated_users, get_user_roles, get_members_with_ranks
 from . import wom_utilities as utils
+from constants import EST
 import database.db_methods as database
 
 class Wise_Old_Man(commands.Cog):
@@ -116,7 +117,7 @@ class Wise_Old_Man(commands.Cog):
             return msg
         return None
 
-    @tasks.loop(time=datetime.time(hour=9, minute=00))
+    @tasks.loop(time=datetime.time(hour=9, minute=00, tzinfo=EST))
     async def update_wom_group(self):
         sync_message = self.sync_wom_group_to_db()
         if sync_message:
@@ -131,7 +132,7 @@ class Wise_Old_Man(commands.Cog):
         await self.bot.wait_until_ready()
 
 
-    @tasks.loop(time=datetime.time(hour=10, minute=00))
+    @tasks.loop(time=datetime.time(hour=10, minute=00, tzinfo=EST))
     async def rolecheck(self):
         try:
             update_users = get_misranked_users()
