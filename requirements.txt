@@ -4,3 +4,4 @@ pymysql
 pytest
 requests
 cryptography
+tzdata
