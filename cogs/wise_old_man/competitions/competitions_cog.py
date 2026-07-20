@@ -9,7 +9,7 @@ import database.db_methods as db_methods
 from shared import tz
 from ..identity import db as identity_db
 from ..shared import checks
-from . import announcements, db as comp_db, event_calendar, metrics, raid_pairs, scheduling, types, winners, wom_api
+from . import announcements, cycle_lookup, db as comp_db, event_calendar, metrics, raid_pairs, scheduling, types, winners, wom_api
 from .views import ConfirmCreateView, KickoffApprovalView, ResultsApprovalView, SoloKickoffApprovalView
 
 
@@ -185,17 +185,7 @@ class Competitions(commands.Cog):
         )
         existing_by_type = {}
         if existing_cycle:
-            existing_comps = await asyncio.to_thread(
-                comp_db.get_competitions_for_cycle, existing_cycle['id']
-            )
-            for row in existing_comps:
-                try:
-                    detail = await asyncio.to_thread(wom_api.get_competition, row['competition_id'])
-                except Exception:
-                    continue
-                comp_type = types.infer_type_from_title(detail.get('title', ''))
-                if comp_type:
-                    existing_by_type.setdefault(comp_type.key, []).append((row, detail))
+            existing_by_type, _ = await cycle_lookup.get_competitions_by_type(existing_cycle['id'])
 
         existing_botw = existing_by_type.get('botw', [])
         existing_sotw = existing_by_type.get('sotw', [])
@@ -325,17 +315,8 @@ class Competitions(commands.Cog):
         if not source_type_obj:
             return None, 'the group'
         source_type = source_type_obj.key
-        comps = await asyncio.to_thread(comp_db.get_competitions_for_cycle, last_cycle['id'])
-
-        matches = []
-        for row in comps:
-            try:
-                detail = await asyncio.to_thread(wom_api.get_competition, row['competition_id'])
-            except Exception:
-                continue
-            inferred = types.infer_type_from_title(detail.get('title', ''))
-            if inferred and inferred.key == source_type:
-                matches.append(detail)
+        by_type, _ = await cycle_lookup.get_competitions_by_type(last_cycle['id'])
+        matches = [detail for _, detail in by_type.get(source_type, [])]
 
         winner = None
         if len(matches) == 2:

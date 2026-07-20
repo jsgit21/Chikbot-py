@@ -6,7 +6,7 @@ import discord
 
 from shared import tz
 from . import db as comp_db
-from . import announcements, metrics, raid_pairs, roles, types, winners, wom_api
+from . import announcements, cycle_lookup, metrics, raid_pairs, roles, types, winners, wom_api
 from ..shared import checks
 from .scheduling import to_wom_iso
 
@@ -380,17 +380,11 @@ class ApproveKickoffButton(discord.ui.Button):
             )
             return
 
-        comps = await asyncio.to_thread(comp_db.get_competitions_for_cycle, cycle['id'])
-        by_type = {}
-        for row in comps:
-            try:
-                detail = await asyncio.to_thread(wom_api.get_competition, row['competition_id'])
-            except Exception as exc:
-                await interaction.followup.send(f'WOM API error fetching competition {row["competition_id"]}: {exc}')
-                return
-            comp_type = types.infer_type_from_title(detail.get('title', ''))
-            if comp_type:
-                by_type.setdefault(comp_type.key, []).append((row, detail))
+        by_type, fetch_errors = await cycle_lookup.get_competitions_by_type(cycle['id'])
+        if fetch_errors:
+            row, exc = fetch_errors[0]
+            await interaction.followup.send(f'WOM API error fetching competition {row["competition_id"]}: {exc}')
+            return
 
         if 'botw' not in by_type or 'sotw' not in by_type:
             await interaction.followup.send('Competition data is incomplete in the DB. Cannot approve.')
