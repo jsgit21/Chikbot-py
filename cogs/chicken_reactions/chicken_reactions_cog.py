@@ -5,29 +5,28 @@ from discord.ext import commands
 
 from shared.emojis import CHICKEN_EMOJI, CHIKBOT_EMOJI, EGG_EMOJI, HATCHLING_EMOJI, ROOSTER_EMOJI
 
-SUBSTRING_WORD_EMOJIS = {
-    "eggs": EGG_EMOJI,
-    "cock": ROOSTER_EMOJI,
-    "rooster": ROOSTER_EMOJI,
-    "scared": HATCHLING_EMOJI,
-    "coward": HATCHLING_EMOJI,
-    "chicken": CHICKEN_EMOJI,
-    "cluck": CHICKEN_EMOJI,
-    "bawk": CHICKEN_EMOJI,
-    "feathers": CHICKEN_EMOJI,
-    "poultry": CHICKEN_EMOJI,
-    "peck": CHICKEN_EMOJI,
-}
+def _flatten(emoji_words: dict) -> dict:
+    flat = {}
+    for emoji, words in emoji_words.items():
+        for word in words:
+            flat[word] = emoji
+    return flat
 
-WHOLE_WORD_EMOJIS = {
-    "egg": EGG_EMOJI,
-    "bot": CHIKBOT_EMOJI,
-    "ai": CHIKBOT_EMOJI,
-    "corp": CHICKEN_EMOJI,
-    "corporeal beast": CHICKEN_EMOJI,
-    "kree": CHICKEN_EMOJI,
-    "kree'arra": CHICKEN_EMOJI,
+
+SUBSTRING_EMOJI_WORDS = {
+    EGG_EMOJI: ["eggs"],
+    ROOSTER_EMOJI: ["cock", "rooster"],
+    HATCHLING_EMOJI: ["scared", "coward"],
+    CHICKEN_EMOJI: ["chicken", "cluck", "bawk", "feathers", "poultry", "peck"],
 }
+SUBSTRING_WORD_EMOJIS = _flatten(SUBSTRING_EMOJI_WORDS)
+
+WHOLE_EMOJI_WORDS = {
+    EGG_EMOJI: ["egg"],
+    CHIKBOT_EMOJI: ["bot", "ai"],
+    CHICKEN_EMOJI: ["corp", "corporeal beast", "kree", "kree'arra"],
+}
+WHOLE_WORD_EMOJIS = _flatten(WHOLE_EMOJI_WORDS)
 
 _WHOLE_WORD_PATTERNS = {
     word: re.compile(rf"\b{re.escape(word)}\b", re.IGNORECASE)
