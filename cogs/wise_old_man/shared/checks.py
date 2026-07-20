@@ -1,5 +1,4 @@
 import os
-
 import discord
 
 # Hard-coded to match the existing check in wise_old_man.py

@@ -2,9 +2,9 @@ import discord
 import os
 import asyncio
 import random
+import database.db_methods as database
 
 from dotenv import load_dotenv
-import database.db_methods as database
 
 load_dotenv()
 TOKEN = os.getenv('TOKEN')

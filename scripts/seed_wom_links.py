@@ -14,7 +14,6 @@ import os
 import sys
 import csv
 import argparse
-
 import pymysql
 
 # Allow running the file directly from the repo root.

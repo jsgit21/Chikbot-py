@@ -1,6 +1,6 @@
 import pymysql
-
 import database.db_methods as database
+
 from ..shared.rsn import normalize_rsn as _normalize_rsn
 
 

@@ -1,11 +1,10 @@
 import asyncio
-
 import discord
-from discord.ext import commands
-
 import database.db_methods as db_methods
-from . import db as identity_db
+
+from discord.ext import commands
 from ..shared import checks
+from . import db as identity_db
 
 
 def _chunk_lines(lines, limit=1800):

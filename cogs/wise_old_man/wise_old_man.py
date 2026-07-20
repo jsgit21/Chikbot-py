@@ -2,14 +2,14 @@ import os
 import random
 import datetime
 import discord
-from discord.ext import tasks, commands
+import database.db_methods as database
 
+from discord.ext import tasks, commands
 from .rolecheck import get_misranked_users, bulk_update_outdated_users, get_user_roles, get_members_with_ranks
+from .shared import checks
+from shared import tz
 from . import wom_utilities as utils
 from .identity import db as identity_db
-from .shared import checks
-import database.db_methods as database
-from shared import tz
 
 class Wise_Old_Man(commands.Cog):
 
