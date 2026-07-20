@@ -1,3 +1,4 @@
+import random
 import re
 
 from discord.ext import commands
@@ -53,8 +54,9 @@ class Chicken_Reactions(commands.Cog):
     async def on_message(self, message):
         if message.author.bot:
             return
-        for emoji in matching_emojis(message.content):
-            await message.add_reaction(emoji)
+        emojis = matching_emojis(message.content)
+        if emojis:
+            await message.add_reaction(random.choice(list(emojis)))
 
 
 def setup(bot):
