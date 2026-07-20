@@ -1,31 +1,28 @@
 import os
+import random
 import datetime
 import discord
-from discord.ext import tasks, commands
-
-from .rolecheck import get_misranked_users, bulk_update_outdated_users, get_user_roles, get_members_with_ranks
-from . import wom_utilities as utils
-from constants import EST
 import database.db_methods as database
+
+from discord.ext import tasks, commands
+from .rolecheck import get_misranked_users, bulk_update_outdated_users, get_user_roles, get_members_with_ranks
+from .shared import checks
+from shared import tz
+from . import wom_utilities as utils
+from .identity import db as identity_db
 
 class Wise_Old_Man(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        self.MOD_CHANNEL_ID = int(os.getenv('MODERATOR_CHANNEL'))
+        self.MOD_CHANNEL_ID = checks.moderator_channel_id()
         self.DEV_CHANNEL_ID = int(os.getenv('PERSONAL_DEV_CHANNEL'))
         self.rolecheck.start()
         self.update_wom_group.start()
 
 
-    # Checks
-    async def is_moderator(ctx):
-        author_roles = ctx.author.roles
-        mod_role = discord.utils.get(author_roles, name='Moderator', id=360455451852406797)
-        return mod_role is not None
-
     # Commands
-    @commands.check(is_moderator)
+    @commands.check(checks.is_moderator)
     @discord.slash_command(description='''Sync the whitelist that controls access to Dink Webhooks.''')
     async def sync_wom_whitelist(self, ctx):
         all_members = get_members_with_ranks()
@@ -117,7 +114,23 @@ class Wise_Old_Man(commands.Cog):
             return msg
         return None
 
-    @tasks.loop(time=datetime.time(hour=9, minute=00, tzinfo=EST))
+    def get_unlinked_backfill_nudge(self):
+        # Occasional, capped nudge so backfill chips away without spamming the mod channel daily
+        if random.randint(1, 3) != 1:
+            return None
+
+        unlinked = identity_db.get_unlinked_members()
+        if not unlinked:
+            return None
+
+        sample = random.sample(unlinked, min(3, len(unlinked)))
+        names = ', '.join(member['rsn'] for member in sample)
+        return f'-# Still unlinked: {names}. Use `/wom link` to connect them to a Discord member.'
+
+    # tzinfo must stay explicit: discord.py's tasks.loop forces UTC on a naive
+    # time= regardless of the host OS's timezone, so a naive hour=9 here would
+    # actually fire at 9:00 UTC, not 9:00 AM ET.
+    @tasks.loop(time=datetime.time(hour=9, minute=0, tzinfo=tz.ET))
     async def update_wom_group(self):
         sync_message = self.sync_wom_group_to_db()
         if sync_message:
@@ -126,13 +139,20 @@ class Wise_Old_Man(commands.Cog):
         message = bulk_update_outdated_users()
         await self.dev_channel.send(message)
 
+        nudge = self.get_unlinked_backfill_nudge()
+        if nudge:
+            await self.mod_channel.send(nudge)
+
 
     @update_wom_group.before_loop
     async def before_update_wom_group(self):
         await self.bot.wait_until_ready()
 
 
-    @tasks.loop(time=datetime.time(hour=10, minute=00, tzinfo=EST))
+    # tzinfo must stay explicit: discord.py's tasks.loop forces UTC on a naive
+    # time= regardless of the host OS's timezone, so a naive hour=10 here would
+    # actually fire at 10:00 UTC, not 10:00 AM ET.
+    @tasks.loop(time=datetime.time(hour=10, minute=0, tzinfo=tz.ET))
     async def rolecheck(self):
         try:
             update_users = get_misranked_users()
