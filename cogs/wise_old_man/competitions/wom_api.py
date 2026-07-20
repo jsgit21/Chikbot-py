@@ -1,7 +1,7 @@
 import datetime
 import os
-from urllib.parse import quote
 
+from urllib.parse import quote
 from ..shared import wom_http
 
 

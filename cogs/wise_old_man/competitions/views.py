@@ -1,14 +1,13 @@
 import asyncio
 import datetime
 import os
-
 import discord
 
 from shared import tz
-from . import db as comp_db
 from . import announcements, cycle_lookup, metrics, raid_pairs, roles, types, winners, wom_api
 from ..shared import checks
 from .scheduling import to_wom_iso
+from . import db as comp_db
 
 
 def to_local_dt(iso_str):

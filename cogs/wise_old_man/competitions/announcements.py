@@ -1,7 +1,5 @@
 from textwrap import dedent
-
 from shared.emojis import GM_EMOJI
-
 from . import types
 
 

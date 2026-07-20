@@ -1,15 +1,14 @@
 import asyncio
 import datetime
-
 import discord
-from discord.ext import commands, tasks
-
 import database.db_methods as db_methods
+
+from discord.ext import commands, tasks
 from shared import tz
-from ..identity import db as identity_db
 from ..shared import checks
-from . import announcements, cycle_lookup, db as comp_db, metrics, raid_pairs, scheduling, types, winners, wom_api
 from .views import ConfirmCreateView, KickoffApprovalView, ResultsApprovalView, SoloKickoffApprovalView
+from ..identity import db as identity_db
+from . import announcements, cycle_lookup, db as comp_db, metrics, raid_pairs, scheduling, types, winners, wom_api
 
 
 class Competitions(commands.Cog):

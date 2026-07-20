@@ -1,5 +1,4 @@
 import pymysql
-
 import database.db_methods as database
 
 
