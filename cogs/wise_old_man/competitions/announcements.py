@@ -17,7 +17,30 @@ def _mention(winner):
 def _gained_label(comp_type, gained):
     if gained is None:
         return 'unknown'
-    return f'{gained:,} {comp_type.gained_unit}'
+    if comp_type.gained_unit:
+        return f'{gained:,} {comp_type.gained_unit}'
+    return f'{gained:,}'
+
+
+_DEFAULT_RESULT_TEMPLATE = '{mention} with **{label}** (`{rsn}`)'
+_DEFAULT_RESULT_TEMPLATE_WITH_NEXT = (
+    _DEFAULT_RESULT_TEMPLATE + "\n\nCongrats! Your pick decides next cycle's {next_target} target."
+)
+
+
+def _render_result_body(comp_type, mention, label, rsn):
+    """Render a type's result body, using its own result_template if it has
+    one, else a default that includes the cross-pick line only when the type
+    actually has a cross-pick partner (feeds_nominator_for).
+    """
+    fields = {'display_name': comp_type.display_name, 'mention': mention, 'label': label, 'rsn': rsn}
+    if comp_type.feeds_nominator_for:
+        fields['next_target'] = types.TYPES[comp_type.feeds_nominator_for].display_name
+        default_template = _DEFAULT_RESULT_TEMPLATE_WITH_NEXT
+    else:
+        default_template = _DEFAULT_RESULT_TEMPLATE
+    template = comp_type.result_template or default_template
+    return template.format(**fields)
 
 
 def build_result_post(comp_type, winner):
@@ -34,13 +57,37 @@ def build_result_post(comp_type, winner):
 
     mention = _mention(winner)
     label = _gained_label(comp_type, winner.get('gained'))
-    next_target = types.TYPES[comp_type.feeds_nominator_for].display_name
-    return dedent(f"""\
-        **{comp_type.display_name} Results**
+    body = _render_result_body(comp_type, mention, label, winner['rsn'])
+    return f'**{comp_type.display_name} Results**\n\n{body}'
 
-        {mention} with **{label}** (`{winner["rsn"]}`)
 
-        Congrats! Your pick decides next cycle's {next_target} target.""")
+def build_raid_pair_result_post(comp_type, pair, winner):
+    """Return the text of a combined raid-pair (CoX/ToB/ToA) results announcement.
+
+    winner: dict from winners.resolve_paired_winner(), or None. Reuses
+    _mention/_gained_label/_render_result_body unmodified -- botw's
+    result_template still renders correctly since those helpers only care
+    about comp_type and the winner dict's shape, not which competition(s) it
+    came from.
+    """
+    if not winner:
+        return dedent(f"""\
+            **{comp_type.display_name} Results — {pair.display_name}**
+
+            No winner data available.""")
+
+    mention = _mention(winner)
+    label = _gained_label(comp_type, winner.get('gained'))
+    rule_note = (
+        'combined completions across both modes' if pair.rule == 'sum'
+        else 'the higher completions count between modes'
+    )
+    body = _render_result_body(comp_type, mention, label, winner['rsn'])
+    return (
+        f'**{comp_type.display_name} Results — {pair.display_name}**\n'
+        f'-# Winner determined by {rule_note}.\n\n'
+        f'{body}'
+    )
 
 
 def _format_dt(dt_et):

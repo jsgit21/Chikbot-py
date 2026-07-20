@@ -4,6 +4,8 @@ from . import types
 
 
 def _get_role(guild, env_key):
+    if not env_key:
+        return None
     val = os.getenv(env_key)
     return guild.get_role(int(val)) if val else None
 

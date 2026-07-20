@@ -6,7 +6,7 @@ import discord
 
 from shared import tz
 from . import db as comp_db
-from . import announcements, metrics, roles, types, winners, wom_api
+from . import announcements, metrics, raid_pairs, roles, types, winners, wom_api
 from ..shared import checks
 from .scheduling import to_wom_iso
 
@@ -49,8 +49,30 @@ class ApproveButton(discord.ui.Button):
             )
             return
 
-        winner = winners.resolve_winner(detail)
-        text = announcements.build_result_post(comp_type, winner)
+        pair = raid_pairs.pair_for_metric(detail.get('metric'))
+        sibling_id = None
+        if pair is not None:
+            try:
+                competitions = await asyncio.to_thread(wom_api.list_group_competitions)
+                sibling_detail = await raid_pairs.find_sibling(detail, competitions)
+            except Exception as exc:
+                await interaction.followup.send(f'WOM API error while locating the raid-pair sibling: {exc}')
+                return
+            if sibling_detail is None:
+                await interaction.followup.send(
+                    f"This is one half of a {pair.display_name} raid pair, but its sibling competition "
+                    "couldn't be found on WOM right now. Try again shortly, or resolve it manually if it looks orphaned."
+                )
+                return
+            sibling_id = sibling_detail['id']
+            base_detail, hard_detail = (
+                (detail, sibling_detail) if detail['metric'] == pair.base_metric else (sibling_detail, detail)
+            )
+            winner = winners.resolve_paired_winner(pair, base_detail, hard_detail)
+            text = announcements.build_raid_pair_result_post(comp_type, pair, winner)
+        else:
+            winner = winners.resolve_winner(detail)
+            text = announcements.build_result_post(comp_type, winner)
 
         ann_channel_id = os.getenv('ANNOUNCEMENTS_CHANNEL')
         if not ann_channel_id:
@@ -76,6 +98,16 @@ class ApproveButton(discord.ui.Button):
             role_warnings = [f'Role assignment failed: {exc}']
 
         await asyncio.to_thread(comp_db.set_results_status, self.competition_id, 'announced')
+        if sibling_id is not None:
+            # _handle_raid_pair_candidate always drafts both halves together, so sibling_id
+            # is expected to already be 'drafted' here.
+            sibling_claimed = await asyncio.to_thread(comp_db.claim_competition_for_announcing, sibling_id)
+            if not sibling_claimed:
+                role_warnings = list(role_warnings) + [
+                    f'Raid-pair sibling competition {sibling_id} was not in the expected '
+                    "'drafted' state when approving — check its results_status manually."
+                ]
+            await asyncio.to_thread(comp_db.set_results_status, sibling_id, 'announced')
 
         self.view.disable_all_items()
         await interaction.message.edit(view=self.view)
@@ -105,9 +137,30 @@ class DismissButton(discord.ui.Button):
 
         await asyncio.to_thread(comp_db.set_results_status, self.competition_id, 'deferred')
 
+        sibling_warning = None
+        try:
+            detail = await asyncio.to_thread(wom_api.get_competition, self.competition_id)
+            pair = raid_pairs.pair_for_metric(detail.get('metric'))
+            if pair is not None:
+                competitions = await asyncio.to_thread(wom_api.list_group_competitions)
+                sibling_detail = await raid_pairs.find_sibling(detail, competitions)
+                if sibling_detail is not None:
+                    await asyncio.to_thread(comp_db.claim_competition_for_announcing, sibling_detail['id'])
+                    await asyncio.to_thread(comp_db.set_results_status, sibling_detail['id'], 'deferred')
+                else:
+                    sibling_warning = (
+                        f'Note: this was one half of a {pair.display_name} raid pair, but its sibling '
+                        "couldn't be located to dismiss alongside it — check its status manually."
+                    )
+        except Exception as exc:
+            sibling_warning = f'Note: failed to check/dismiss the raid-pair sibling: {exc}'
+
         self.view.disable_all_items()
         await interaction.message.edit(view=self.view)
-        await interaction.response.send_message('Dismissed.')
+        reply = 'Dismissed.'
+        if sibling_warning:
+            reply += f'\n\n-# {sibling_warning}'
+        await interaction.response.send_message(reply)
 
 
 class ResultsApprovalView(discord.ui.View):
@@ -152,54 +205,57 @@ class ConfirmCreateButton(discord.ui.Button):
                 comp_db.insert_cycle, payload['starts_at'], payload['ends_at'], 'planned'
             )
 
-        async def _ensure_side(side):
-            """Create side on WOM and persist it, unless a resumed cycle already has it."""
-            if side['existing_competition_id']:
-                return None
+        kickoff_status = 'drafted' if len(sides) == 1 else None
+
+        async def _create_and_persist(title, metric, nominator_user_id, this_kickoff_status):
             resp = await asyncio.to_thread(
-                wom_api.create_competition,
-                side['title'], side['metric'],
+                wom_api.create_competition, title, metric,
                 to_wom_iso(payload['starts_at']), to_wom_iso(payload['ends_at']),
             )
-            kickoff_status = 'drafted' if len(sides) == 1 else None
             await asyncio.to_thread(
-                comp_db.ensure_competition_row,
-                resp['competition']['id'], cycle_id,
-                resp['verificationCode'], side['nominator_user_id'], kickoff_status,
+                comp_db.ensure_competition_row, resp['competition']['id'], cycle_id,
+                resp['verificationCode'], nominator_user_id, this_kickoff_status,
             )
-            return resp
+            return resp['competition']['id']
 
-        created = []
-        for side in sides:
-            try:
-                resp = await _ensure_side(side)
-                competition_id = side['existing_competition_id'] or resp['competition']['id']
-                created.append((side, competition_id))
-            except Exception as exc:
-                if len(sides) > 1:
-                    mod_channel_id = checks.moderator_channel_id()
-                    mod_channel = interaction.client.get_channel(mod_channel_id)
-                    if created:
-                        note = (
-                            f"{created[0][0]['metric_display']} was created on WOM "
-                            f"(competition id {created[0][1]}) but its partner failed: {exc}\n"
-                            'This will **not** be announced or tracked as OTW — manual '
-                            'cleanup on WOM is up to you if you want it removed.'
-                        )
-                    else:
-                        note = f'Both sides failed before either was created on WOM: {exc}'
-                    if mod_channel:
-                        await mod_channel.send(f'**OTW pairing failed.**\n{note}')
-                    await interaction.followup.send(
-                        'Pairing failed — see the mod channel for details.', ephemeral=True
+        created = []  # [(label_dict, competition_id), ...] -- one entry per underlying WOM competition
+        try:
+            for side in sides:
+                units = side['raid_pair'] if side.get('raid_pair') else [side]
+                for unit in units:
+                    if unit['existing_competition_id']:
+                        created.append((unit, unit['existing_competition_id']))
+                        continue
+                    this_kickoff_status = None if side.get('raid_pair') else kickoff_status
+                    comp_id = await _create_and_persist(
+                        unit['title'], unit['metric'], side['nominator_user_id'], this_kickoff_status
+                    )
+                    created.append((unit, comp_id))
+        except Exception as exc:
+            if len(sides) > 1:
+                mod_channel_id = checks.moderator_channel_id()
+                mod_channel = interaction.client.get_channel(mod_channel_id)
+                if created:
+                    done = ', '.join(f"{label['metric_display']} (id {cid})" for label, cid in created)
+                    note = (
+                        f"{done} created on WOM, but the rest of this pairing failed: {exc}\n"
+                        'This will **not** be announced or tracked as OTW — manual '
+                        'cleanup on WOM is up to you if you want it removed.'
                     )
                 else:
-                    await interaction.followup.send(
-                        f'Failed to create the competition on WOM: {exc}\n'
-                        'Nothing was created — rerun `/competition create` to retry.',
-                        ephemeral=True,
-                    )
-                return
+                    note = f'Nothing was created before this pairing failed: {exc}'
+                if mod_channel:
+                    await mod_channel.send(f'**OTW pairing failed.**\n{note}')
+                await interaction.followup.send(
+                    'Pairing failed — see the mod channel for details.', ephemeral=True
+                )
+            else:
+                await interaction.followup.send(
+                    f'Failed to create the competition on WOM: {exc}\n'
+                    'Nothing was created — rerun `/competition create` to retry.',
+                    ephemeral=True,
+                )
+            return
 
         self.view.disable_all_items()
         await interaction.message.edit(view=self.view)
@@ -267,7 +323,9 @@ class ConfirmCreateView(discord.ui.View):
         'sides': [
             {'metric': slug, 'metric_display': str, 'title': str,
              'nominator_user_id': int or None, 'nominator_text': str,
-             'existing_competition_id': int or None, 'existing_verification_code': str or None},
+             'existing_competition_id': int or None, 'existing_verification_code': str or None,
+             'raid_pair': [{'metric', 'metric_display', 'title',
+                            'existing_competition_id', 'existing_verification_code'}, ...] or None},
             ...  # one dict for solo, two (botw, sotw) for a pair
         ],
     }
@@ -328,30 +386,53 @@ class ApproveKickoffButton(discord.ui.Button):
             try:
                 detail = await asyncio.to_thread(wom_api.get_competition, row['competition_id'])
             except Exception as exc:
-                await interaction.followup.send(
-                    f'WOM API error fetching competition {row["competition_id"]}: {exc}'
-                )
+                await interaction.followup.send(f'WOM API error fetching competition {row["competition_id"]}: {exc}')
                 return
             comp_type = types.infer_type_from_title(detail.get('title', ''))
             if comp_type:
-                by_type[comp_type.key] = (row, detail)
+                by_type.setdefault(comp_type.key, []).append((row, detail))
 
         if 'botw' not in by_type or 'sotw' not in by_type:
-            await interaction.followup.send(
-                'Competition data is incomplete in the DB. Cannot approve.',
-            )
+            await interaction.followup.send('Competition data is incomplete in the DB. Cannot approve.')
             return
 
-        def _pick(comp_type_key):
-            row, detail = by_type[comp_type_key]
-            return {
-                'title': detail['title'],
-                'metric_display': metrics.display_name(comp_type_key, detail['metric']),
-                'nominator_text': _nominator_mention(row['nominator_user_id']),
+        sotw_row, sotw_detail = by_type['sotw'][0]
+        sotw_pick = {
+            'title': sotw_detail['title'],
+            'metric_display': metrics.display_name('sotw', sotw_detail['metric']),
+            'nominator_text': _nominator_mention(sotw_row['nominator_user_id']),
+        }
+
+        botw_rows = by_type['botw']
+        if len(botw_rows) == 1:
+            botw_row, botw_detail = botw_rows[0]
+            botw_pick = {
+                'title': botw_detail['title'],
+                'metric_display': metrics.display_name('botw', botw_detail['metric']),
+                'nominator_text': _nominator_mention(botw_row['nominator_user_id']),
             }
+        elif len(botw_rows) == 2:
+            metrics_seen = {d['metric'] for _, d in botw_rows}
+            pair = raid_pairs.pair_for_metric(next(iter(metrics_seen)))
+            if pair is None or metrics_seen != {pair.base_metric, pair.hard_metric}:
+                await interaction.followup.send(
+                    "This cycle has two BOTW competitions but they don't form a recognized raid pair. Cannot approve."
+                )
+                return
+            by_metric = {d['metric']: (r, d) for r, d in botw_rows}
+            base_row, base_detail = by_metric[pair.base_metric]
+            hard_row, hard_detail = by_metric[pair.hard_metric]
+            botw_pick = {
+                'title': f'{base_detail["title"]}\n{hard_detail["title"]}',
+                'metric_display': pair.display_name,
+                'nominator_text': _nominator_mention(base_row['nominator_user_id']),
+            }
+        else:
+            await interaction.followup.send(f'Unexpected number of BOTW competitions ({len(botw_rows)}) for this cycle. Cannot approve.')
+            return
 
         text = announcements.build_kickoff_post(
-            cycle['starts_at'], cycle['ends_at'], _pick('botw'), _pick('sotw')
+            cycle['starts_at'], cycle['ends_at'], botw_pick, sotw_pick
         )
 
         ann_channel_id = os.getenv('ANNOUNCEMENTS_CHANNEL')
