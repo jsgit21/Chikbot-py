@@ -5,13 +5,13 @@ import random
 import database.db_methods as database
 
 from dotenv import load_dotenv
+from shared.emojis import GM_EMOJI
 
 load_dotenv()
 TOKEN = os.getenv('TOKEN')
 DEV_CHANNEL_ID = int(os.getenv('PERSONAL_DEV_CHANNEL'))
 GM_CHANNEL_ID = int(os.getenv('GM_CHANNEL'))
 CHIKBOT_ID = int(os.getenv('CHIKBOT_ID'))
-GM_EMOJI = discord.PartialEmoji(name='gm', id=874033154313314414)
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -24,6 +24,7 @@ chikbot = discord.Bot(intents=intents)
 chikbot.load_extension('cogs.user_goals.user_goals')
 chikbot.load_extension('cogs.wise_old_man.wise_old_man')
 chikbot.load_extension('cogs.wise_old_man.identity.identity_cog')
+chikbot.load_extension('cogs.wise_old_man.competitions.competitions_cog')
 chikbot.load_extension('cogs.runescape_logger.runescape_logger')
 chikbot.load_extension('cogs.chicken_reactions.chicken_reactions_cog')
 
