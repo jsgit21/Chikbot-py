@@ -52,3 +52,31 @@ create table Discord.wom_link (
 
 -- Conversational alias used in competition titles/posts ("mayo", "peppy").
 alter table Discord.user add column preferred_alias varchar(32) null;
+
+-- A BOTW + SOTW pairing and its lifecycle. Drives "weeks since last cycle".
+create table Discord.competition_cycle (
+  id int unsigned primary key auto_increment,
+  starts_at datetime not null,
+  ends_at datetime not null,
+  status enum('planned', 'publishing', 'active', 'ended') default 'planned',
+  created_at timestamp default current_timestamp
+);
+
+-- One row per WOM competition we create/track (two per cycle). Everything
+-- WOM's API already returns (type, metric, title, dates, winner) is queried
+-- live instead of mirrored here; this table only holds what has no WOM
+-- equivalent. verification_code is sensitive: it grants edit/delete on the
+-- WOM competition.
+create table Discord.competition (
+  competition_id int unsigned primary key,
+  cycle_id int unsigned null,
+  verification_code varchar(64) null,
+  nominator_user_id bigint unsigned null,
+  results_status enum('pending', 'drafted', 'announcing', 'announced', 'deferred') default 'pending',
+  -- Only set for a standalone (solo) competition, tracking its kickoff-approval state.
+  -- Paired (OTW) competitions track this via competition_cycle.status instead, so
+  -- this stays null for them.
+  kickoff_status enum('drafted', 'announced') null,
+  created_at timestamp default current_timestamp,
+  constraint fk_competition_cycle foreign key (cycle_id) references Discord.competition_cycle (id)
+);
