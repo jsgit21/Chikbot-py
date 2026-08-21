@@ -1,21 +1,24 @@
 import random
 
 _DIE_ART_LINES = [
-    '   ______',
-    '  /     /|',
-    ' /_____/ |',
-    ' |     | |',
-    ' |     | /',
-    ' |_____|/',
+    '       .-------. ',
+    '      /       /|   ',
+    '     /_______/o|  ',
+    '     | o     | | ',
+    '     |   o   |o/ ',
+    '     |     o |/  ',
+    "     '-------' ",
 ]
-_RESULT_ROW = 3
+_RESULT_ROW = 1
+_RESULT_WIDTH = 7
 
 
 def roll(sides):
     return random.randint(1, sides)
 
 
-def render(sides, result):
+def render(total):
     lines = list(_DIE_ART_LINES)
-    lines[_RESULT_ROW] = f'{lines[_RESULT_ROW]}     Result: {result}'
+    face = str(total).center(_RESULT_WIDTH)
+    lines[_RESULT_ROW] = f'      /{face}/|   '
     return '\n'.join(lines)
