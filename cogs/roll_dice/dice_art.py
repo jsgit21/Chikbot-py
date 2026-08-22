@@ -1,5 +1,3 @@
-import random
-
 _DIE_ART_LINES = [
     '       .-------. ',
     '      /       /|   ',
@@ -11,10 +9,6 @@ _DIE_ART_LINES = [
 ]
 _RESULT_ROW = 1
 _RESULT_WIDTH = 7
-
-
-def roll(sides):
-    return random.randint(1, sides)
 
 
 def render(total):
