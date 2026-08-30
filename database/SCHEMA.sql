@@ -33,7 +33,7 @@ create view Discord.ordered_goals as (
       on g.parent_id = s.id
 );
 
-create table Discord.candyland_event (
+create table candyland.candyland_event (
   id int unsigned primary key auto_increment,
   slug varchar(64) not null unique,
   board_slug varchar(32) not null,          -- 'standard' now, 'hard' after reveal
@@ -43,7 +43,7 @@ create table Discord.candyland_event (
   created_at timestamp default current_timestamp
 );
 
-create table Discord.candyland_team (
+create table candyland.candyland_team (
   id int unsigned primary key auto_increment,
   event_id int unsigned not null,
   name varchar(64) not null,
@@ -56,7 +56,7 @@ create table Discord.candyland_team (
   unique key (event_id, role_id)
 );
 
-create table Discord.candyland_tile_thread (
+create table candyland.candyland_tile_thread (
   id int unsigned primary key auto_increment,
   team_id int unsigned not null,
   board_slug varchar(32) not null,
@@ -72,7 +72,7 @@ create table Discord.candyland_tile_thread (
 -- At most one open thread per team is a runtime invariant enforced in code,
 -- not a DB constraint (MySQL cannot do a partial unique index).
 
-create table Discord.candyland_movement (
+create table candyland.candyland_movement (
   id int unsigned primary key auto_increment,
   team_id int unsigned not null,
   kind enum('roll','adjustment','board_transition') not null,
@@ -90,7 +90,7 @@ create table Discord.candyland_movement (
 -- APPEND ONLY. Never update or delete a row. Corrections are a new
 -- 'adjustment' row.
 
-create table Discord.candyland_team_state (
+create table candyland.candyland_team_state (
   team_id int unsigned primary key,
   board_slug varchar(32) not null,
   current_sequence int not null default 1,
@@ -102,7 +102,7 @@ create table Discord.candyland_team_state (
 -- DERIVED. Written only by the fold in candyland_db. candyland_movement is the
 -- source of truth; this is a cache for cheap reads by chikbot and the website.
 
-create table Discord.candyland_bounty_use (
+create table candyland.candyland_bounty_use (
   id int unsigned primary key auto_increment,
   team_id int unsigned not null,
   board_slug varchar(32) not null,
@@ -115,7 +115,7 @@ create table Discord.candyland_bounty_use (
   unique key (team_id, board_slug, bounty_key)
 );
 
-create table Discord.candyland_audit (
+create table candyland.candyland_audit (
   id int unsigned primary key auto_increment,
   actor_user_id bigint unsigned,
   action varchar(64) not null,

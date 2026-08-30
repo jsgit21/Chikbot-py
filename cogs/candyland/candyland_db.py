@@ -2,11 +2,11 @@ import json
 
 import pymysql
 
-import database.db_methods as database
+from . import candyland_connection as connection
 
 
 def create_event(slug, board_slug, starts_at, ends_at, testdb=None):
-    db = testdb if testdb else database.create_connection()
+    db = testdb if testdb else connection.create_connection()
     cursor = db.cursor()
 
     query = """
@@ -24,7 +24,7 @@ def create_event(slug, board_slug, starts_at, ends_at, testdb=None):
 
 
 def get_event(slug, testdb=None):
-    db = testdb if testdb else database.create_connection()
+    db = testdb if testdb else connection.create_connection()
     cursor = db.cursor(pymysql.cursors.DictCursor)
 
     query = """
@@ -37,7 +37,7 @@ def get_event(slug, testdb=None):
 
 
 def set_event_status(slug, status, testdb=None):
-    db = testdb if testdb else database.create_connection()
+    db = testdb if testdb else connection.create_connection()
     cursor = db.cursor()
 
     query = """
@@ -49,7 +49,7 @@ def set_event_status(slug, status, testdb=None):
 
 
 def register_team(event_id, name, role_id, forum_channel_id, sort_order, testdb=None):
-    db = testdb if testdb else database.create_connection()
+    db = testdb if testdb else connection.create_connection()
     cursor = db.cursor()
 
     query = """
@@ -96,7 +96,7 @@ def register_team(event_id, name, role_id, forum_channel_id, sort_order, testdb=
 
 
 def get_teams(event_id, testdb=None):
-    db = testdb if testdb else database.create_connection()
+    db = testdb if testdb else connection.create_connection()
     cursor = db.cursor(pymysql.cursors.DictCursor)
 
     query = """
@@ -110,7 +110,7 @@ def get_teams(event_id, testdb=None):
 
 
 def get_team_by_role(event_id, role_id, testdb=None):
-    db = testdb if testdb else database.create_connection()
+    db = testdb if testdb else connection.create_connection()
     cursor = db.cursor(pymysql.cursors.DictCursor)
 
     query = """
@@ -124,7 +124,7 @@ def get_team_by_role(event_id, role_id, testdb=None):
 
 
 def get_team_state(team_id, testdb=None):
-    db = testdb if testdb else database.create_connection()
+    db = testdb if testdb else connection.create_connection()
     cursor = db.cursor(pymysql.cursors.DictCursor)
 
     query = """
@@ -144,7 +144,7 @@ def get_team_state(team_id, testdb=None):
 
 
 def get_all_state(event_id, testdb=None):
-    db = testdb if testdb else database.create_connection()
+    db = testdb if testdb else connection.create_connection()
     cursor = db.cursor(pymysql.cursors.DictCursor)
 
     query = """
@@ -166,7 +166,7 @@ def get_all_state(event_id, testdb=None):
 def record_movement(team_id, kind, board_slug, dice_values, from_sequence,
                     to_sequence, proof_thread_id, invoked_by_user_id, note,
                     testdb=None):
-    db = testdb if testdb else database.create_connection()
+    db = testdb if testdb else connection.create_connection()
     cursor = db.cursor()
 
     query = """
@@ -203,7 +203,7 @@ def _replay(movements):
 
 
 def refold_team_state(team_id, testdb=None):
-    db = testdb if testdb else database.create_connection()
+    db = testdb if testdb else connection.create_connection()
     cursor = db.cursor(pymysql.cursors.DictCursor)
 
     query = """
@@ -236,7 +236,7 @@ def refold_team_state(team_id, testdb=None):
 
 
 def claim_team_for_roll(team_id, expected_movement_id, testdb=None):
-    db = testdb if testdb else database.create_connection()
+    db = testdb if testdb else connection.create_connection()
     cursor = db.cursor()
 
     # pymysql reports rows changed, not rows matched, so the conditional
@@ -254,7 +254,7 @@ def claim_team_for_roll(team_id, expected_movement_id, testdb=None):
 
 
 def open_tile_thread(team_id, board_slug, tile_sequence, thread_id, testdb=None):
-    db = testdb if testdb else database.create_connection()
+    db = testdb if testdb else connection.create_connection()
     cursor = db.cursor()
 
     query = """
@@ -267,7 +267,7 @@ def open_tile_thread(team_id, board_slug, tile_sequence, thread_id, testdb=None)
 
 
 def get_open_thread(team_id, testdb=None):
-    db = testdb if testdb else database.create_connection()
+    db = testdb if testdb else connection.create_connection()
     cursor = db.cursor(pymysql.cursors.DictCursor)
 
     query = """
@@ -282,7 +282,7 @@ def get_open_thread(team_id, testdb=None):
 
 
 def close_tile_thread(thread_row_id, testdb=None):
-    db = testdb if testdb else database.create_connection()
+    db = testdb if testdb else connection.create_connection()
     cursor = db.cursor()
 
     query = """
@@ -296,7 +296,7 @@ def close_tile_thread(thread_row_id, testdb=None):
 
 def record_bounty_use(team_id, board_slug, bounty_key, used_on_sequence,
                       movement_id, testdb=None):
-    db = testdb if testdb else database.create_connection()
+    db = testdb if testdb else connection.create_connection()
     cursor = db.cursor()
 
     query = """
@@ -308,7 +308,7 @@ def record_bounty_use(team_id, board_slug, bounty_key, used_on_sequence,
 
 
 def get_bounty_uses(team_id, board_slug, testdb=None):
-    db = testdb if testdb else database.create_connection()
+    db = testdb if testdb else connection.create_connection()
     cursor = db.cursor(pymysql.cursors.DictCursor)
 
     query = """
@@ -323,7 +323,7 @@ def get_bounty_uses(team_id, board_slug, testdb=None):
 
 
 def write_audit(actor_user_id, action, payload_dict, testdb=None):
-    db = testdb if testdb else database.create_connection()
+    db = testdb if testdb else connection.create_connection()
     cursor = db.cursor()
 
     query = """

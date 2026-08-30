@@ -3,7 +3,8 @@ import pymysql
 from database import db_methods
 from cogs.candyland import candyland_db
 
-TEST_DATABASE = 'Discord_Test'
+TEST_DATABASE = 'candyland_test'
+SOURCE_DATABASE = 'candyland'
 
 # Child-before-parent for drops, parent-before-child for creates.
 CANDYLAND_TABLES = [
@@ -28,7 +29,7 @@ def setup_candyland_tables(test_db):
     for table in CANDYLAND_TABLES:
         cursor.execute(f'drop table if exists {TEST_DATABASE}.{table}')
     for table in reversed(CANDYLAND_TABLES):
-        cursor.execute(f'create table {TEST_DATABASE}.{table} like Discord.{table}')
+        cursor.execute(f'create table {TEST_DATABASE}.{table} like {SOURCE_DATABASE}.{table}')
 
 
 def test_create_and_get_event(test_db, setup_candyland_tables):
