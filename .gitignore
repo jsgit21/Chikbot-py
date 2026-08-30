@@ -146,3 +146,10 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Claude
+CLAUDE.md
+.claude/
+
+# Local-only Claude reference docs on repo conventions, not shared/tracked history
+.architecture/
