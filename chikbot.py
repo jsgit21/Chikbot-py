@@ -26,6 +26,7 @@ chikbot.load_extension('cogs.wise_old_man.wise_old_man')
 chikbot.load_extension('cogs.runescape_logger.runescape_logger')
 chikbot.load_extension('cogs.chicken_reactions.chicken_reactions_cog')
 chikbot.load_extension('cogs.roll_dice.roll_dice_cog')
+chikbot.load_extension('cogs.candyland.candyland_cog')
 
 
 def get_random_emoji() -> discord.Emoji:
