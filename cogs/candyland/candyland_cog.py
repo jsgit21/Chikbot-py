@@ -1,8 +1,8 @@
 """Casual GMers Land (candyland) admin cog - Phase A.
 
 Phase A (this cog): the schema in database/SCHEMA.sql, the DB-access module
-candyland_db.py, and the mod-gated admin commands below to create an event,
-register teams, and read board state back.
+candyland_db_methods.py, and the mod-gated admin commands below to create an
+event, register teams, and read board state back.
 
 Phase B (not here): /candyland roll, 1d4+1 movement, the per-tile forum-thread
 ceremony, the movement writes and the state fold wired into play.
@@ -14,7 +14,7 @@ import asyncio
 import discord
 from discord.ext import commands
 
-from . import candyland_db as database
+from . import candyland_db_methods as database
 
 
 async def is_moderator(ctx):

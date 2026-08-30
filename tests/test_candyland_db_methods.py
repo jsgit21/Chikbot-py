@@ -1,7 +1,7 @@
 import pytest
 import pymysql
 from database import db_methods
-from cogs.candyland import candyland_db
+from cogs.candyland import candyland_db_methods as candyland_methods
 
 TEST_DATABASE = 'candyland_test'
 SOURCE_DATABASE = 'candyland'
@@ -33,8 +33,8 @@ def setup_candyland_tables(test_db):
 
 
 def test_create_and_get_event(test_db, setup_candyland_tables):
-    event_id = candyland_db.create_event('cgl-2026', 'standard', None, None, testdb=test_db)
-    event = candyland_db.get_event('cgl-2026', testdb=test_db)
+    event_id = candyland_methods.create_event('cgl-2026', 'standard', None, None, testdb=test_db)
+    event = candyland_methods.get_event('cgl-2026', testdb=test_db)
 
     assert event['id'] == event_id
     assert event['slug'] == 'cgl-2026'
@@ -43,10 +43,10 @@ def test_create_and_get_event(test_db, setup_candyland_tables):
 
 
 def test_register_team_is_idempotent(test_db, setup_candyland_tables):
-    event_id = candyland_db.create_event('cgl-2026', 'standard', None, None, testdb=test_db)
+    event_id = candyland_methods.create_event('cgl-2026', 'standard', None, None, testdb=test_db)
 
-    first = candyland_db.register_team(event_id, 'Team 1', 111, 222, 0, testdb=test_db)
-    second = candyland_db.register_team(event_id, 'Team 1 renamed', 111, 999, 0, testdb=test_db)
+    first = candyland_methods.register_team(event_id, 'Team 1', 111, 222, 0, testdb=test_db)
+    second = candyland_methods.register_team(event_id, 'Team 1 renamed', 111, 999, 0, testdb=test_db)
 
     assert first == second
 
@@ -72,18 +72,18 @@ def test_replay_folds_to_last_movement():
         {'board_slug': 'hard', 'to_sequence': 1},       # board_transition
     ]
 
-    assert candyland_db._replay(movements) == ('hard', 1)
+    assert candyland_methods._replay(movements) == ('hard', 1)
 
 
 def test_refold_team_state_writes_fold(test_db, setup_candyland_tables):
-    event_id = candyland_db.create_event('cgl-2026', 'standard', None, None, testdb=test_db)
-    team_id = candyland_db.register_team(event_id, 'Team 1', 111, 222, 0, testdb=test_db)
+    event_id = candyland_methods.create_event('cgl-2026', 'standard', None, None, testdb=test_db)
+    team_id = candyland_methods.register_team(event_id, 'Team 1', 111, 222, 0, testdb=test_db)
 
-    candyland_db.record_movement(team_id, 'roll', 'standard', '3', 1, 4, None, None, None, testdb=test_db)
-    candyland_db.record_movement(team_id, 'adjustment', 'standard', None, 4, 3, None, None, 'fix', testdb=test_db)
-    last_id = candyland_db.record_movement(team_id, 'board_transition', 'hard', None, 3, 1, None, None, None, testdb=test_db)
+    candyland_methods.record_movement(team_id, 'roll', 'standard', '3', 1, 4, None, None, None, testdb=test_db)
+    candyland_methods.record_movement(team_id, 'adjustment', 'standard', None, 4, 3, None, None, 'fix', testdb=test_db)
+    last_id = candyland_methods.record_movement(team_id, 'board_transition', 'hard', None, 3, 1, None, None, None, testdb=test_db)
 
-    state = candyland_db.refold_team_state(team_id, testdb=test_db)
+    state = candyland_methods.refold_team_state(team_id, testdb=test_db)
 
     assert state['board_slug'] == 'hard'
     assert state['current_sequence'] == 1
@@ -91,23 +91,23 @@ def test_refold_team_state_writes_fold(test_db, setup_candyland_tables):
 
 
 def test_claim_team_for_roll_guards_on_last_movement(test_db, setup_candyland_tables):
-    event_id = candyland_db.create_event('cgl-2026', 'standard', None, None, testdb=test_db)
-    team_id = candyland_db.register_team(event_id, 'Team 1', 111, 222, 0, testdb=test_db)
+    event_id = candyland_methods.create_event('cgl-2026', 'standard', None, None, testdb=test_db)
+    team_id = candyland_methods.register_team(event_id, 'Team 1', 111, 222, 0, testdb=test_db)
 
-    movement_id = candyland_db.record_movement(team_id, 'roll', 'standard', '2', 1, 3, None, None, None, testdb=test_db)
-    candyland_db.refold_team_state(team_id, testdb=test_db)
+    movement_id = candyland_methods.record_movement(team_id, 'roll', 'standard', '2', 1, 3, None, None, None, testdb=test_db)
+    candyland_methods.refold_team_state(team_id, testdb=test_db)
 
-    assert candyland_db.claim_team_for_roll(team_id, movement_id, testdb=test_db) == 1
-    assert candyland_db.claim_team_for_roll(team_id, movement_id + 999, testdb=test_db) == 0
+    assert candyland_methods.claim_team_for_roll(team_id, movement_id, testdb=test_db) == 1
+    assert candyland_methods.claim_team_for_roll(team_id, movement_id + 999, testdb=test_db) == 0
 
 
 def test_get_all_state_one_row_per_team_in_sort_order(test_db, setup_candyland_tables):
-    event_id = candyland_db.create_event('cgl-2026', 'standard', None, None, testdb=test_db)
-    candyland_db.register_team(event_id, 'Bravo', 20, 21, 1, testdb=test_db)
-    candyland_db.register_team(event_id, 'Alpha', 10, 11, 0, testdb=test_db)
-    candyland_db.register_team(event_id, 'Charlie', 30, 31, 2, testdb=test_db)
+    event_id = candyland_methods.create_event('cgl-2026', 'standard', None, None, testdb=test_db)
+    candyland_methods.register_team(event_id, 'Bravo', 20, 21, 1, testdb=test_db)
+    candyland_methods.register_team(event_id, 'Alpha', 10, 11, 0, testdb=test_db)
+    candyland_methods.register_team(event_id, 'Charlie', 30, 31, 2, testdb=test_db)
 
-    rows = candyland_db.get_all_state(event_id, testdb=test_db)
+    rows = candyland_methods.get_all_state(event_id, testdb=test_db)
 
     assert [r['name'] for r in rows] == ['Alpha', 'Bravo', 'Charlie']
     assert all(r['current_sequence'] == 1 for r in rows)

@@ -99,7 +99,7 @@ create table candyland.team_state (
   constraint fk_state_team foreign key (team_id)
     references team (id) on delete cascade
 );
--- DERIVED. Written only by the fold in candyland_db. movement is the
+-- DERIVED. Written only by the fold in candyland_db_methods. movement is the
 -- source of truth; this is a cache for cheap reads by chikbot and the website.
 
 create table candyland.bounty_use (
