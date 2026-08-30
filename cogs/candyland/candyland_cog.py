@@ -1,9 +1,6 @@
 """Casual GMers Land (candyland) admin cog - Phase A.
 
-Parent plan: C:\\Users\\Nick\\.claude\\plans\\candyland-pivot-plan.md
-Phase A brief: C:\\Users\\Nick\\.claude\\plans\\candyland-phaseA-data-handoff.md
-
-Phase A (here): the schema in database/SCHEMA.sql, the DB-access module
+Phase A (this cog): the schema in database/SCHEMA.sql, the DB-access module
 candyland_db.py, and the mod-gated admin commands below to create an event,
 register teams, and read board state back.
 
