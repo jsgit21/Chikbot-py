@@ -7,11 +7,11 @@ TEST_DATABASE = 'candyland_test'
 SOURCE_DATABASE = 'candyland'
 
 # Child-before-parent for drops, parent-before-child for creates.
-CANDYLAND_TABLES = [
-    'candyland_movement',
-    'candyland_team_state',
-    'candyland_team',
-    'candyland_event',
+TABLES = [
+    'movement',
+    'team_state',
+    'team',
+    'event',
 ]
 
 
@@ -26,9 +26,9 @@ def test_db():
 def setup_candyland_tables(test_db):
     cursor = test_db.cursor()
 
-    for table in CANDYLAND_TABLES:
+    for table in TABLES:
         cursor.execute(f'drop table if exists {TEST_DATABASE}.{table}')
-    for table in reversed(CANDYLAND_TABLES):
+    for table in reversed(TABLES):
         cursor.execute(f'create table {TEST_DATABASE}.{table} like {SOURCE_DATABASE}.{table}')
 
 
@@ -51,7 +51,7 @@ def test_register_team_is_idempotent(test_db, setup_candyland_tables):
     assert first == second
 
     cursor = test_db.cursor(pymysql.cursors.DictCursor)
-    cursor.execute(f'select * from {TEST_DATABASE}.candyland_team where event_id = %s', (event_id,))
+    cursor.execute(f'select * from {TEST_DATABASE}.team where event_id = %s', (event_id,))
     teams = cursor.fetchall()
 
     assert len(teams) == 1
@@ -59,7 +59,7 @@ def test_register_team_is_idempotent(test_db, setup_candyland_tables):
     assert teams[0]['forum_channel_id'] == 999
 
     cursor.execute(
-        f'select count(*) as n from {TEST_DATABASE}.candyland_team_state where team_id = %s',
+        f'select count(*) as n from {TEST_DATABASE}.team_state where team_id = %s',
         (first,),
     )
     assert cursor.fetchone()['n'] == 1

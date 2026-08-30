@@ -10,7 +10,7 @@ def create_event(slug, board_slug, starts_at, ends_at, testdb=None):
     cursor = db.cursor()
 
     query = """
-        insert into candyland_event (slug, board_slug, starts_at, ends_at)
+        insert into event (slug, board_slug, starts_at, ends_at)
         values (%s, %s, %s, %s)
     """
     values = (
@@ -29,7 +29,7 @@ def get_event(slug, testdb=None):
 
     query = """
         select id, slug, board_slug, status, starts_at, ends_at, created_at
-          from candyland_event
+          from event
          where slug = %s
     """
     cursor.execute(query, (slug,))
@@ -41,7 +41,7 @@ def set_event_status(slug, status, testdb=None):
     cursor = db.cursor()
 
     query = """
-        update candyland_event
+        update event
            set status = %s
          where slug = %s
     """
@@ -53,7 +53,7 @@ def register_team(event_id, name, role_id, forum_channel_id, sort_order, testdb=
     cursor = db.cursor()
 
     query = """
-        insert into candyland_team
+        insert into team
             (event_id, name, role_id, forum_channel_id, sort_order)
         values (%s, %s, %s, %s, %s)
         on duplicate key update
@@ -71,7 +71,7 @@ def register_team(event_id, name, role_id, forum_channel_id, sort_order, testdb=
 
     query = """
         select id
-          from candyland_team
+          from team
          where event_id = %s
            and role_id = %s
     """
@@ -80,14 +80,14 @@ def register_team(event_id, name, role_id, forum_channel_id, sort_order, testdb=
 
     query = """
         select board_slug
-          from candyland_event
+          from event
          where id = %s
     """
     cursor.execute(query, (event_id,))
     board_slug = cursor.fetchone()[0]
 
     query = """
-        insert ignore into candyland_team_state (team_id, board_slug, current_sequence)
+        insert ignore into team_state (team_id, board_slug, current_sequence)
         values (%s, %s, 1)
     """
     cursor.execute(query, (team_id, board_slug))
@@ -101,7 +101,7 @@ def get_teams(event_id, testdb=None):
 
     query = """
         select id, event_id, name, role_id, forum_channel_id, sort_order, created_at
-          from candyland_team
+          from team
          where event_id = %s
          order by sort_order
     """
@@ -115,7 +115,7 @@ def get_team_by_role(event_id, role_id, testdb=None):
 
     query = """
         select id, event_id, name, role_id, forum_channel_id, sort_order, created_at
-          from candyland_team
+          from team
          where event_id = %s
            and role_id = %s
     """
@@ -134,8 +134,8 @@ def get_team_state(team_id, testdb=None):
                s.current_sequence,
                s.last_movement_id,
                s.updated_at
-          from candyland_team_state s
-          join candyland_team t
+          from team_state s
+          join team t
             on t.id = s.team_id
          where s.team_id = %s
     """
@@ -153,8 +153,8 @@ def get_all_state(event_id, testdb=None):
                s.board_slug,
                s.current_sequence,
                s.updated_at
-          from candyland_team t
-          join candyland_team_state s
+          from team t
+          join team_state s
             on s.team_id = t.id
          where t.event_id = %s
          order by t.sort_order
@@ -170,7 +170,7 @@ def record_movement(team_id, kind, board_slug, dice_values, from_sequence,
     cursor = db.cursor()
 
     query = """
-        insert into candyland_movement
+        insert into movement
             (team_id, kind, board_slug, dice_values, from_sequence, to_sequence,
              proof_thread_id, invoked_by_user_id, note)
         values (%s, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -191,7 +191,7 @@ def record_movement(team_id, kind, board_slug, dice_values, from_sequence,
 
 
 def _replay(movements):
-    # Each candyland_movement row is self-describing: it records the board it
+    # Each movement row is self-describing: it records the board it
     # resolved on and the sequence it left the team at. Replaying is therefore
     # just taking the last row's board and sequence.
     board_slug = None
@@ -208,7 +208,7 @@ def refold_team_state(team_id, testdb=None):
 
     query = """
         select id, board_slug, to_sequence
-          from candyland_movement
+          from movement
          where team_id = %s
          order by id
     """
@@ -222,7 +222,7 @@ def refold_team_state(team_id, testdb=None):
     last_movement_id = movements[-1]['id']
 
     query = """
-        insert into candyland_team_state
+        insert into team_state
             (team_id, board_slug, current_sequence, last_movement_id)
         values (%s, %s, %s, %s)
         on duplicate key update
@@ -245,7 +245,7 @@ def claim_team_for_roll(team_id, expected_movement_id, testdb=None):
     # expects, 0 means someone else moved the team first.
     query = """
         select count(*)
-          from candyland_team_state
+          from team_state
          where team_id = %s
            and last_movement_id <=> %s
     """
@@ -258,7 +258,7 @@ def open_tile_thread(team_id, board_slug, tile_sequence, thread_id, testdb=None)
     cursor = db.cursor()
 
     query = """
-        insert into candyland_tile_thread
+        insert into tile_thread
             (team_id, board_slug, tile_sequence, thread_id)
         values (%s, %s, %s, %s)
     """
@@ -273,7 +273,7 @@ def get_open_thread(team_id, testdb=None):
     query = """
         select id, team_id, board_slug, tile_sequence, thread_id, state,
                opened_at, closed_at
-          from candyland_tile_thread
+          from tile_thread
          where team_id = %s
            and state = 'open'
     """
@@ -286,7 +286,7 @@ def close_tile_thread(thread_row_id, testdb=None):
     cursor = db.cursor()
 
     query = """
-        update candyland_tile_thread
+        update tile_thread
            set state = 'closed',
                closed_at = now()
          where id = %s
@@ -300,7 +300,7 @@ def record_bounty_use(team_id, board_slug, bounty_key, used_on_sequence,
     cursor = db.cursor()
 
     query = """
-        insert into candyland_bounty_use
+        insert into bounty_use
             (team_id, board_slug, bounty_key, used_on_sequence, movement_id)
         values (%s, %s, %s, %s, %s)
     """
@@ -314,7 +314,7 @@ def get_bounty_uses(team_id, board_slug, testdb=None):
     query = """
         select id, team_id, board_slug, bounty_key, used_on_sequence, movement_id,
                created_at
-          from candyland_bounty_use
+          from bounty_use
          where team_id = %s
            and board_slug = %s
     """
@@ -327,7 +327,7 @@ def write_audit(actor_user_id, action, payload_dict, testdb=None):
     cursor = db.cursor()
 
     query = """
-        insert into candyland_audit (actor_user_id, action, payload)
+        insert into audit (actor_user_id, action, payload)
         values (%s, %s, %s)
     """
     cursor.execute(query, (actor_user_id, action, json.dumps(payload_dict)))
