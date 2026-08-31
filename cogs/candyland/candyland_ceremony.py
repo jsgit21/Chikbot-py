@@ -3,7 +3,7 @@ import asyncio
 import discord
 
 _THREAD_BODY = (
-    '**Tile {tile}** - goal text lands in Phase F.\n'
+    '**Tile {tile}**\n'
     'Post your proof images in this thread, then run `/candyland roll` in '
     '<#{channel}>.\n{role}'
 )
@@ -17,9 +17,14 @@ async def resolve_channel(bot, channel_id):
     return channel
 
 
+# A tile's proof is always recent (posted since the thread opened); a cap keeps
+# /candyland roll inside the interaction window on a chatty thread.
+_PROOF_SCAN_LIMIT = 200
+
+
 async def thread_has_proof_image(bot, thread_id, team_role_id):
     thread = await resolve_channel(bot, thread_id)
-    async for message in thread.history(limit=None):
+    async for message in thread.history(limit=_PROOF_SCAN_LIMIT):
         if not any((a.content_type or '').startswith('image/') for a in message.attachments):
             continue
         member = message.author
@@ -59,14 +64,6 @@ async def lock_and_archive(bot, thread_id):
     await thread.edit(archived=True, locked=True, reason=_ARCHIVE_REASON)
 
 
-async def database_open_and_close(database, team_id, tile_sequence,
-                                  new_thread_id, old_thread_row_id):
-    def _work():
-        database.open_tile_thread(team_id, tile_sequence, new_thread_id)
-        database.close_tile_thread(old_thread_row_id)
-    await asyncio.to_thread(_work)
-
-
 async def run_post_roll_ceremony(bot, database, team, team_role,
                                  mainbingo_channel_id, to_sequence,
                                  old_thread_row):
@@ -85,12 +82,17 @@ async def run_post_roll_ceremony(bot, database, team, team_role,
         return result  # nothing else is safe to do without the new thread
 
     try:
-        await database_open_and_close(database, team['id'],
-                                      to_sequence, new_thread.id, old_thread_row['id'])
+        await asyncio.to_thread(
+            database.swap_open_thread, team['id'], to_sequence, new_thread.id,
+            old_thread_row['id'],
+        )
         result['steps']['db_swap_open_thread'] = 'ok'
     except Exception as e:
         result['steps']['db_swap_open_thread'] = 'FAIL'
         result['failures'].append(f'db_swap_open_thread: {e!r}')
+        # Leave the old thread usable: it is still the team's open row in the DB,
+        # so locking it now would strand them with nowhere to post proof.
+        return result
 
     try:
         await lock_and_archive(bot, old_thread_row['thread_id'])

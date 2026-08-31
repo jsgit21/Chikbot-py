@@ -289,6 +289,26 @@ def open_tile_thread(team_id, tile_sequence, thread_id, testdb=None):
     return cursor.lastrowid
 
 
+def get_any_thread(team_id, testdb=None):
+    # Most recent tile_thread row for the team regardless of state. /candyland
+    # start uses this for idempotency: a team that already has any thread row
+    # has been kicked off, so re-running start must not open a second tile-1
+    # thread (which would also collide on the (team_id, tile_sequence) key).
+    db = testdb if testdb else connection.create_connection()
+    cursor = db.cursor(pymysql.cursors.DictCursor)
+
+    query = """
+        select id, team_id, tile_sequence, thread_id, state,
+               opened_at, closed_at
+          from tile_thread
+         where team_id = %s
+         order by id desc
+         limit 1
+    """
+    cursor.execute(query, (team_id,))
+    return cursor.fetchone()
+
+
 def get_open_thread(team_id, testdb=None):
     db = testdb if testdb else connection.create_connection()
     cursor = db.cursor(pymysql.cursors.DictCursor)
@@ -315,6 +335,46 @@ def close_tile_thread(thread_row_id, testdb=None):
          where id = %s
     """
     cursor.execute(query, (thread_row_id,))
+
+
+def swap_open_thread(team_id, tile_sequence, new_thread_id, old_thread_row_id,
+                     testdb=None):
+    # Open the next tile's thread row and close the previous one as a single
+    # transaction: a failure between the two must not leave a team with two
+    # state='open' rows (get_open_thread does fetchone() and would pick one
+    # arbitrarily, breaking the one-open-thread-per-team invariant).
+    db = testdb if testdb else connection.create_connection()
+    db.begin()
+    try:
+        open_tile_thread(team_id, tile_sequence, new_thread_id, testdb=db)
+        close_tile_thread(old_thread_row_id, testdb=db)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+
+def clear_event_play_data(event_id, testdb=None):
+    # Test-only reset: wipe every play-generated row for the event's teams and
+    # send the event back to 'setup' so /candyland start can run again. Keeps the
+    # event and its teams. Never call this on a real event.
+    db = testdb if testdb else connection.create_connection()
+    db.begin()
+    try:
+        cursor = db.cursor()
+        for stmt in (
+            "delete bu from bounty_use bu join team t on t.id = bu.team_id where t.event_id = %s",
+            "delete m from movement m join team t on t.id = m.team_id where t.event_id = %s",
+            "delete tt from tile_thread tt join team t on t.id = tt.team_id where t.event_id = %s",
+            "update team_state s join team t on t.id = s.team_id "
+            "   set s.current_sequence = 1, s.last_movement_id = null where t.event_id = %s",
+            "update event set status = 'setup' where id = %s",
+        ):
+            cursor.execute(stmt, (event_id,))
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
 
 def record_bounty_use(team_id, board_number, bounty_key, used_on_sequence,

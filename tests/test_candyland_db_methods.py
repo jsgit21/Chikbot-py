@@ -8,6 +8,8 @@ SOURCE_DATABASE = 'candyland'
 
 # Child-before-parent for drops, parent-before-child for creates.
 TABLES = [
+    'bounty_use',
+    'tile_thread',
     'movement',
     'team_state',
     'team',
@@ -134,6 +136,58 @@ def test_advance_team_by_roll_rejects_a_stale_guard(test_db, setup_candyland_tab
     cursor = test_db.cursor(pymysql.cursors.DictCursor)
     cursor.execute(f'select count(*) as n from {TEST_DATABASE}.movement where team_id = %s', (team_id,))
     assert cursor.fetchone()['n'] == 1
+
+
+def test_get_any_thread_returns_latest_regardless_of_state(test_db, setup_candyland_tables):
+    event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
+    team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
+
+    assert candyland_methods.get_any_thread(team_id, testdb=test_db) is None
+
+    first_id = candyland_methods.open_tile_thread(team_id, 1, 900, testdb=test_db)
+    candyland_methods.close_tile_thread(first_id, testdb=test_db)
+
+    latest = candyland_methods.get_any_thread(team_id, testdb=test_db)
+    assert latest['id'] == first_id
+    assert latest['state'] == 'closed'
+
+
+def test_swap_open_thread_moves_the_single_open_row(test_db, setup_candyland_tables):
+    event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
+    team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
+    old_id = candyland_methods.open_tile_thread(team_id, 1, 900, testdb=test_db)
+
+    candyland_methods.swap_open_thread(team_id, 4, 901, old_id, testdb=test_db)
+
+    open_row = candyland_methods.get_open_thread(team_id, testdb=test_db)
+    assert open_row['tile_sequence'] == 4
+    assert open_row['thread_id'] == 901
+
+    cursor = test_db.cursor(pymysql.cursors.DictCursor)
+    cursor.execute(f"select count(*) as n from {TEST_DATABASE}.tile_thread "
+                   f"where team_id = %s and state = 'open'", (team_id,))
+    assert cursor.fetchone()['n'] == 1
+
+
+def test_clear_event_play_data_resets_teams_and_status(test_db, setup_candyland_tables):
+    event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
+    team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
+    candyland_methods.set_event_status('e', 'live', testdb=test_db)
+    candyland_methods.advance_team_by_roll(team_id, 3, 1, 4, 900, 42, None, testdb=test_db)
+    candyland_methods.open_tile_thread(team_id, 4, 901, testdb=test_db)
+
+    candyland_methods.clear_event_play_data(event_id, testdb=test_db)
+
+    assert candyland_methods.get_event('e', testdb=test_db)['status'] == 'setup'
+    state = candyland_methods.get_team_state(team_id, testdb=test_db)
+    assert state['current_sequence'] == 1
+    assert state['last_movement_id'] is None
+
+    cursor = test_db.cursor(pymysql.cursors.DictCursor)
+    cursor.execute(f'select count(*) as n from {TEST_DATABASE}.movement where team_id = %s', (team_id,))
+    assert cursor.fetchone()['n'] == 0
+    cursor.execute(f'select count(*) as n from {TEST_DATABASE}.tile_thread where team_id = %s', (team_id,))
+    assert cursor.fetchone()['n'] == 0
 
 
 def test_get_all_state_one_row_per_team_in_sort_order(test_db, setup_candyland_tables):
