@@ -90,15 +90,52 @@ def test_refold_team_state_writes_fold(test_db, setup_candyland_tables):
     assert state['last_movement_id'] == last_id
 
 
-def test_claim_team_for_roll_guards_on_last_movement(test_db, setup_candyland_tables):
-    event_id = candyland_methods.create_event('cgl-2026', 'standard', None, None, testdb=test_db)
-    team_id = candyland_methods.register_team(event_id, 'Team 1', 111, 222, 0, testdb=test_db)
+def test_get_active_event_returns_the_single_live_row(test_db, setup_candyland_tables):
+    candyland_methods.create_event('past', 'standard', None, None, testdb=test_db)
+    live_id = candyland_methods.create_event('now', 'standard', None, None, testdb=test_db)
 
-    movement_id = candyland_methods.record_movement(team_id, 'roll', 'standard', '2', 1, 3, None, None, None, testdb=test_db)
-    candyland_methods.refold_team_state(team_id, testdb=test_db)
+    assert candyland_methods.get_active_event(testdb=test_db) is None
 
-    assert candyland_methods.claim_team_for_roll(team_id, movement_id, testdb=test_db) == 1
-    assert candyland_methods.claim_team_for_roll(team_id, movement_id + 999, testdb=test_db) == 0
+    candyland_methods.set_event_status('now', 'live', testdb=test_db)
+    active = candyland_methods.get_active_event(testdb=test_db)
+    assert active['id'] == live_id
+    assert active['slug'] == 'now'
+
+
+def test_advance_team_by_roll_appends_and_folds(test_db, setup_candyland_tables):
+    event_id = candyland_methods.create_event('e', 'standard', None, None, testdb=test_db)
+    team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
+
+    movement_id = candyland_methods.advance_team_by_roll(
+        team_id, 'standard', '3', 1, 4, 999, 42, None, testdb=test_db
+    )
+    assert movement_id is not None
+
+    state = candyland_methods.get_team_state(team_id, testdb=test_db)
+    assert state['current_sequence'] == 4
+    assert state['last_movement_id'] == movement_id
+
+
+def test_advance_team_by_roll_rejects_a_stale_guard(test_db, setup_candyland_tables):
+    event_id = candyland_methods.create_event('e', 'standard', None, None, testdb=test_db)
+    team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
+
+    first = candyland_methods.advance_team_by_roll(
+        team_id, 'standard', '3', 1, 4, 999, 42, None, testdb=test_db
+    )
+    # a second roll that still thinks last_movement_id is NULL has lost the race
+    second = candyland_methods.advance_team_by_roll(
+        team_id, 'standard', '5', 1, 6, 999, 42, None, testdb=test_db
+    )
+    assert second is None
+
+    state = candyland_methods.get_team_state(team_id, testdb=test_db)
+    assert state['current_sequence'] == 4
+    assert state['last_movement_id'] == first
+
+    cursor = test_db.cursor(pymysql.cursors.DictCursor)
+    cursor.execute(f'select count(*) as n from {TEST_DATABASE}.movement where team_id = %s', (team_id,))
+    assert cursor.fetchone()['n'] == 1
 
 
 def test_get_all_state_one_row_per_team_in_sort_order(test_db, setup_candyland_tables):

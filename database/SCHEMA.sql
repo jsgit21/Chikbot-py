@@ -77,7 +77,7 @@ create table candyland.movement (
   team_id int unsigned not null,
   kind enum('roll','adjustment','board_transition') not null,
   board_slug varchar(32) not null,
-  dice_values varchar(32),                  -- e.g. '3' for 1d4+1 -> stored as the die face; see Phase B
+  dice_values varchar(32),                  -- the total moved, '2'..'5' for a 1d4+1 roll; null for adjustment/board_transition
   from_sequence int not null,
   to_sequence int not null,
   proof_thread_id bigint unsigned,          -- the thread whose images justified this move

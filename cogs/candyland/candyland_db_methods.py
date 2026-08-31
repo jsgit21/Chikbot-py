@@ -36,6 +36,21 @@ def get_event(slug, testdb=None):
     return cursor.fetchone()
 
 
+def get_active_event(testdb=None):
+    db = testdb if testdb else connection.create_connection()
+    cursor = db.cursor(pymysql.cursors.DictCursor)
+
+    query = """
+        select id, slug, board_slug, status, starts_at, ends_at, created_at
+          from event
+         where status = 'live'
+         order by id desc
+         limit 1
+    """
+    cursor.execute(query)
+    return cursor.fetchone()
+
+
 def set_event_status(slug, status, testdb=None):
     db = testdb if testdb else connection.create_connection()
     cursor = db.cursor()
@@ -235,22 +250,46 @@ def refold_team_state(team_id, testdb=None):
     return get_team_state(team_id, testdb=testdb)
 
 
-def claim_team_for_roll(team_id, expected_movement_id, testdb=None):
+def advance_team_by_roll(team_id, board_slug, dice_values, from_sequence,
+                         to_sequence, proof_thread_id, invoked_by_user_id,
+                         expected_movement_id, testdb=None):
+    # The one place in the codebase that needs a real transaction: two team
+    # members spamming /candyland roll in the same second must not both advance
+    # the team. SELECT ... FOR UPDATE on the team_state row serialises them; the
+    # loser sees a changed last_movement_id and is turned away with None.
     db = testdb if testdb else connection.create_connection()
-    cursor = db.cursor()
+    db.begin()
+    try:
+        cursor = db.cursor()
+        cursor.execute(
+            """
+            select last_movement_id, current_sequence
+              from team_state
+             where team_id = %s
+             for update
+            """,
+            (team_id,),
+        )
+        locked = cursor.fetchone()
+        if locked is None:
+            db.rollback()
+            return None
 
-    # pymysql reports rows changed, not rows matched, so the conditional
-    # no-op UPDATE this guard would normally use always reports 0. Count the
-    # matching row instead: 1 means last_movement_id is still what Phase B
-    # expects, 0 means someone else moved the team first.
-    query = """
-        select count(*)
-          from team_state
-         where team_id = %s
-           and last_movement_id <=> %s
-    """
-    cursor.execute(query, (team_id, expected_movement_id))
-    return cursor.fetchone()[0]
+        locked_movement_id, locked_sequence = locked
+        if locked_movement_id != expected_movement_id or locked_sequence != from_sequence:
+            db.rollback()
+            return None
+
+        movement_id = record_movement(
+            team_id, 'roll', board_slug, dice_values, from_sequence, to_sequence,
+            proof_thread_id, invoked_by_user_id, None, testdb=db,
+        )
+        refold_team_state(team_id, testdb=db)
+        db.commit()
+        return movement_id
+    except Exception:
+        db.rollback()
+        raise
 
 
 def open_tile_thread(team_id, board_slug, tile_sequence, thread_id, testdb=None):
