@@ -5,17 +5,16 @@ import pymysql
 from . import candyland_connection as connection
 
 
-def create_event(slug, board_slug, starts_at, ends_at, testdb=None):
+def create_event(slug, starts_at, ends_at, testdb=None):
     db = testdb if testdb else connection.create_connection()
     cursor = db.cursor()
 
     query = """
-        insert into event (slug, board_slug, starts_at, ends_at)
-        values (%s, %s, %s, %s)
+        insert into event (slug, starts_at, ends_at)
+        values (%s, %s, %s)
     """
     values = (
         slug,
-        board_slug,
         starts_at,
         ends_at,
     )
@@ -28,7 +27,7 @@ def get_event(slug, testdb=None):
     cursor = db.cursor(pymysql.cursors.DictCursor)
 
     query = """
-        select id, slug, board_slug, status, starts_at, ends_at, created_at
+        select id, slug, status, starts_at, ends_at, created_at
           from event
          where slug = %s
     """
@@ -41,7 +40,7 @@ def get_active_event(testdb=None):
     cursor = db.cursor(pymysql.cursors.DictCursor)
 
     query = """
-        select id, slug, board_slug, status, starts_at, ends_at, created_at
+        select id, slug, status, starts_at, ends_at, created_at
           from event
          where status = 'live'
          order by id desc
@@ -94,18 +93,10 @@ def register_team(event_id, name, role_id, forum_channel_id, sort_order, testdb=
     team_id = cursor.fetchone()[0]
 
     query = """
-        select board_slug
-          from event
-         where id = %s
+        insert ignore into team_state (team_id, current_sequence)
+        values (%s, 1)
     """
-    cursor.execute(query, (event_id,))
-    board_slug = cursor.fetchone()[0]
-
-    query = """
-        insert ignore into team_state (team_id, board_slug, current_sequence)
-        values (%s, %s, 1)
-    """
-    cursor.execute(query, (team_id, board_slug))
+    cursor.execute(query, (team_id,))
 
     return team_id
 
@@ -145,7 +136,6 @@ def get_team_state(team_id, testdb=None):
     query = """
         select s.team_id,
                t.name,
-               s.board_slug,
                s.current_sequence,
                s.last_movement_id,
                s.updated_at
@@ -165,7 +155,6 @@ def get_all_state(event_id, testdb=None):
     query = """
         select t.id as team_id,
                t.name,
-               s.board_slug,
                s.current_sequence,
                s.updated_at
           from team t
@@ -178,7 +167,7 @@ def get_all_state(event_id, testdb=None):
     return cursor.fetchall()
 
 
-def record_movement(team_id, kind, board_slug, roll_total, from_sequence,
+def record_movement(team_id, kind, roll_total, from_sequence,
                     to_sequence, proof_thread_id, invoked_by_user_id, note,
                     testdb=None):
     db = testdb if testdb else connection.create_connection()
@@ -186,14 +175,13 @@ def record_movement(team_id, kind, board_slug, roll_total, from_sequence,
 
     query = """
         insert into movement
-            (team_id, kind, board_slug, roll_total, from_sequence, to_sequence,
+            (team_id, kind, roll_total, from_sequence, to_sequence,
              proof_thread_id, invoked_by_user_id, note)
-        values (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        values (%s, %s, %s, %s, %s, %s, %s, %s)
     """
     values = (
         team_id,
         kind,
-        board_slug,
         roll_total,
         from_sequence,
         to_sequence,
@@ -206,15 +194,12 @@ def record_movement(team_id, kind, board_slug, roll_total, from_sequence,
 
 
 def _replay(movements):
-    # Each movement row is self-describing: it records the board it
-    # resolved on and the sequence it left the team at. Replaying is therefore
-    # just taking the last row's board and sequence.
-    board_slug = None
+    # Each movement row records the sequence it left the team at. Replaying
+    # is just taking the last row's to_sequence.
     sequence = 1
     for movement in movements:
-        board_slug = movement['board_slug']
         sequence = movement['to_sequence']
-    return board_slug, sequence
+    return sequence
 
 
 def refold_team_state(team_id, testdb=None):
@@ -222,7 +207,7 @@ def refold_team_state(team_id, testdb=None):
     cursor = db.cursor(pymysql.cursors.DictCursor)
 
     query = """
-        select id, board_slug, to_sequence
+        select id, to_sequence
           from movement
          where team_id = %s
          order by id
@@ -233,24 +218,23 @@ def refold_team_state(team_id, testdb=None):
     if not movements:
         return get_team_state(team_id, testdb=testdb)
 
-    board_slug, sequence = _replay(movements)
+    sequence = _replay(movements)
     last_movement_id = movements[-1]['id']
 
     query = """
         insert into team_state
-            (team_id, board_slug, current_sequence, last_movement_id)
-        values (%s, %s, %s, %s)
+            (team_id, current_sequence, last_movement_id)
+        values (%s, %s, %s)
         on duplicate key update
-            board_slug = values(board_slug),
             current_sequence = values(current_sequence),
             last_movement_id = values(last_movement_id)
     """
-    cursor.execute(query, (team_id, board_slug, sequence, last_movement_id))
+    cursor.execute(query, (team_id, sequence, last_movement_id))
 
     return get_team_state(team_id, testdb=testdb)
 
 
-def advance_team_by_roll(team_id, board_slug, roll_total, from_sequence,
+def advance_team_by_roll(team_id, roll_total, from_sequence,
                          to_sequence, proof_thread_id, invoked_by_user_id,
                          expected_movement_id, testdb=None):
     # The one place in the codebase that needs a real transaction: two team
@@ -281,7 +265,7 @@ def advance_team_by_roll(team_id, board_slug, roll_total, from_sequence,
             return None
 
         movement_id = record_movement(
-            team_id, 'roll', board_slug, roll_total, from_sequence, to_sequence,
+            team_id, 'roll', roll_total, from_sequence, to_sequence,
             proof_thread_id, invoked_by_user_id, None, testdb=db,
         )
         refold_team_state(team_id, testdb=db)
@@ -292,16 +276,16 @@ def advance_team_by_roll(team_id, board_slug, roll_total, from_sequence,
         raise
 
 
-def open_tile_thread(team_id, board_slug, tile_sequence, thread_id, testdb=None):
+def open_tile_thread(team_id, tile_sequence, thread_id, testdb=None):
     db = testdb if testdb else connection.create_connection()
     cursor = db.cursor()
 
     query = """
         insert into tile_thread
-            (team_id, board_slug, tile_sequence, thread_id)
-        values (%s, %s, %s, %s)
+            (team_id, tile_sequence, thread_id)
+        values (%s, %s, %s)
     """
-    cursor.execute(query, (team_id, board_slug, tile_sequence, thread_id))
+    cursor.execute(query, (team_id, tile_sequence, thread_id))
     return cursor.lastrowid
 
 
@@ -310,7 +294,7 @@ def get_open_thread(team_id, testdb=None):
     cursor = db.cursor(pymysql.cursors.DictCursor)
 
     query = """
-        select id, team_id, board_slug, tile_sequence, thread_id, state,
+        select id, team_id, tile_sequence, thread_id, state,
                opened_at, closed_at
           from tile_thread
          where team_id = %s
@@ -333,31 +317,31 @@ def close_tile_thread(thread_row_id, testdb=None):
     cursor.execute(query, (thread_row_id,))
 
 
-def record_bounty_use(team_id, board_slug, bounty_key, used_on_sequence,
+def record_bounty_use(team_id, board_number, bounty_key, used_on_sequence,
                       movement_id, testdb=None):
     db = testdb if testdb else connection.create_connection()
     cursor = db.cursor()
 
     query = """
         insert into bounty_use
-            (team_id, board_slug, bounty_key, used_on_sequence, movement_id)
+            (team_id, board_number, bounty_key, used_on_sequence, movement_id)
         values (%s, %s, %s, %s, %s)
     """
-    cursor.execute(query, (team_id, board_slug, bounty_key, used_on_sequence, movement_id))
+    cursor.execute(query, (team_id, board_number, bounty_key, used_on_sequence, movement_id))
 
 
-def get_bounty_uses(team_id, board_slug, testdb=None):
+def get_bounty_uses(team_id, board_number, testdb=None):
     db = testdb if testdb else connection.create_connection()
     cursor = db.cursor(pymysql.cursors.DictCursor)
 
     query = """
-        select id, team_id, board_slug, bounty_key, used_on_sequence, movement_id,
+        select id, team_id, board_number, bounty_key, used_on_sequence, movement_id,
                created_at
           from bounty_use
          where team_id = %s
-           and board_slug = %s
+           and board_number = %s
     """
-    cursor.execute(query, (team_id, board_slug))
+    cursor.execute(query, (team_id, board_number))
     return cursor.fetchall()
 
 

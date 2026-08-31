@@ -40,15 +40,14 @@ class Candyland(commands.Cog):
     @candyland.command(name='setup-event', description='Create a candyland event')
     async def setup_event(self, ctx,
                           slug: discord.Option(str, 'Unique event slug'),
-                          board_slug: discord.Option(str, 'Starting board', choices=['standard', 'hard']),
                           starts_at: discord.Option(str, 'Start time, ISO-8601 UTC', required=False, default=None),
                           ends_at: discord.Option(str, 'End time, ISO-8601 UTC', required=False, default=None)):
         event_id = await asyncio.to_thread(
-            database.create_event, slug, board_slug, starts_at, ends_at
+            database.create_event, slug, starts_at, ends_at
         )
         await asyncio.to_thread(
             database.write_audit, ctx.author.id, 'setup-event',
-            {'slug': slug, 'board_slug': board_slug, 'event_id': event_id}
+            {'slug': slug, 'event_id': event_id}
         )
         await ctx.respond(f'Created candyland event **{slug}** (id `{event_id}`).')
 
@@ -96,7 +95,7 @@ class Candyland(commands.Cog):
         lines = [f"__Board state for **{event_slug}**__"]
         for row in rows:
             lines.append(
-                f'- **{row["name"]}**: {row["board_slug"]} tile {row["current_sequence"]} '
+                f'- **{row["name"]}**: tile {row["current_sequence"]} '
                 f'(updated {row["updated_at"]})'
             )
         await ctx.respond('\n'.join(lines))
@@ -131,7 +130,7 @@ class Candyland(commands.Cog):
                     team_role, 1,
                 )
                 await asyncio.to_thread(
-                    database.open_tile_thread, team['id'], event['board_slug'], 1, thread.id
+                    database.open_tile_thread, team['id'], 1, thread.id
                 )
                 opened.append(team['name'])
             except Exception as e:
@@ -188,8 +187,7 @@ class Candyland(commands.Cog):
 
         state = await asyncio.to_thread(database.get_team_state, team['id'])
         from_sequence = state['current_sequence']
-        board_slug = state['board_slug']
-        board_size = candyland_board.BOARD_SIZES[board_slug]
+        board_size = candyland_board.BOARD1_SIZE
 
         if thread_row['tile_sequence'] != from_sequence:
             await ctx.respond(
@@ -220,7 +218,7 @@ class Candyland(commands.Cog):
 
         movement_id = await asyncio.to_thread(
             database.advance_team_by_roll,
-            team['id'], board_slug, die, from_sequence, to_sequence,
+            team['id'], die, from_sequence, to_sequence,
             thread_row['thread_id'], ctx.author.id, state['last_movement_id'],
         )
         if movement_id is None:
@@ -242,7 +240,7 @@ class Candyland(commands.Cog):
         team_role = ctx.guild.get_role(team['role_id'])
         result = await candyland_ceremony.run_post_roll_ceremony(
             self.bot, database, team, team_role, self.mainbingo_channel_id,
-            board_slug, to_sequence, thread_row,
+            to_sequence, thread_row,
         )
         await asyncio.to_thread(
             database.write_audit, ctx.author.id, 'roll',

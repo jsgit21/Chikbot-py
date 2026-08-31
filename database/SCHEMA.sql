@@ -36,7 +36,7 @@ create view Discord.ordered_goals as (
 create table candyland.event (
   id int unsigned primary key auto_increment,
   slug varchar(64) not null unique,
-  board_slug varchar(32) not null,          -- 'standard' now, 'hard' after reveal
+  board2_revealed_at datetime null,         -- set by /candyland doomsday (Phase C) to unhide Board 2
   status enum('setup','live','ended') not null default 'setup',
   starts_at datetime,
   ends_at datetime,
@@ -59,7 +59,6 @@ create table candyland.team (
 create table candyland.tile_thread (
   id int unsigned primary key auto_increment,
   team_id int unsigned not null,
-  board_slug varchar(32) not null,
   tile_sequence int not null,
   thread_id bigint unsigned not null,       -- the Discord forum post/thread
   state enum('open','closed') not null default 'open',
@@ -67,7 +66,7 @@ create table candyland.tile_thread (
   closed_at timestamp null,
   constraint fk_thread_team foreign key (team_id)
     references team (id) on delete cascade,
-  unique key (team_id, board_slug, tile_sequence)
+  unique key (team_id, tile_sequence)
 );
 -- At most one open thread per team is a runtime invariant enforced in code,
 -- not a DB constraint (MySQL cannot do a partial unique index).
@@ -76,7 +75,6 @@ create table candyland.movement (
   id int unsigned primary key auto_increment,
   team_id int unsigned not null,
   kind enum('roll','adjustment','board_transition') not null,
-  board_slug varchar(32) not null,
   roll_total tinyint unsigned,              -- 1d4+1 result, 2..5; null for adjustment/board_transition. start/end are from_sequence/to_sequence
   from_sequence int not null,
   to_sequence int not null,
@@ -92,7 +90,6 @@ create table candyland.movement (
 
 create table candyland.team_state (
   team_id int unsigned primary key,
-  board_slug varchar(32) not null,
   current_sequence int not null default 1,
   last_movement_id int unsigned,
   updated_at timestamp default current_timestamp on update current_timestamp,
@@ -105,14 +102,14 @@ create table candyland.team_state (
 create table candyland.bounty_use (
   id int unsigned primary key auto_increment,
   team_id int unsigned not null,
-  board_slug varchar(32) not null,
+  board_number tinyint unsigned not null,   -- which board the used-on tile is on, at write time; "each bounty once per board"
   bounty_key varchar(16) not null,          -- 'A'..'D','BOOST','UNDERSTUDY','SWAP'
   used_on_sequence int not null,
   movement_id int unsigned,
   created_at timestamp default current_timestamp,
   constraint fk_bounty_team foreign key (team_id)
     references team (id) on delete cascade,
-  unique key (team_id, board_slug, bounty_key)
+  unique key (team_id, board_number, bounty_key)
 );
 
 create table candyland.audit (
