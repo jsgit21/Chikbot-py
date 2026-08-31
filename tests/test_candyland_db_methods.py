@@ -79,7 +79,7 @@ def test_refold_team_state_writes_fold(test_db, setup_candyland_tables):
     event_id = candyland_methods.create_event('cgl-2026', 'standard', None, None, testdb=test_db)
     team_id = candyland_methods.register_team(event_id, 'Team 1', 111, 222, 0, testdb=test_db)
 
-    candyland_methods.record_movement(team_id, 'roll', 'standard', '3', 1, 4, None, None, None, testdb=test_db)
+    candyland_methods.record_movement(team_id, 'roll', 'standard', 3, 1, 4, None, None, None, testdb=test_db)
     candyland_methods.record_movement(team_id, 'adjustment', 'standard', None, 4, 3, None, None, 'fix', testdb=test_db)
     last_id = candyland_methods.record_movement(team_id, 'board_transition', 'hard', None, 3, 1, None, None, None, testdb=test_db)
 
@@ -107,7 +107,7 @@ def test_advance_team_by_roll_appends_and_folds(test_db, setup_candyland_tables)
     team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
 
     movement_id = candyland_methods.advance_team_by_roll(
-        team_id, 'standard', '3', 1, 4, 999, 42, None, testdb=test_db
+        team_id, 'standard', 3, 1, 4, 999, 42, None, testdb=test_db
     )
     assert movement_id is not None
 
@@ -121,11 +121,11 @@ def test_advance_team_by_roll_rejects_a_stale_guard(test_db, setup_candyland_tab
     team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
 
     first = candyland_methods.advance_team_by_roll(
-        team_id, 'standard', '3', 1, 4, 999, 42, None, testdb=test_db
+        team_id, 'standard', 3, 1, 4, 999, 42, None, testdb=test_db
     )
     # a second roll that still thinks last_movement_id is NULL has lost the race
     second = candyland_methods.advance_team_by_roll(
-        team_id, 'standard', '5', 1, 6, 999, 42, None, testdb=test_db
+        team_id, 'standard', 5, 1, 6, 999, 42, None, testdb=test_db
     )
     assert second is None
 

@@ -200,7 +200,8 @@ class Candyland(commands.Cog):
 
         if from_sequence >= board_size:
             await ctx.respond(
-                'Your team is on the final tile; the board transition is handled separately.',
+                'Your team is on the final tile. After you complete it, a moderator '
+                'will handle finalization.',
                 ephemeral=True,
             )
             return
@@ -219,7 +220,7 @@ class Candyland(commands.Cog):
 
         movement_id = await asyncio.to_thread(
             database.advance_team_by_roll,
-            team['id'], board_slug, str(die), from_sequence, to_sequence,
+            team['id'], board_slug, die, from_sequence, to_sequence,
             thread_row['thread_id'], ctx.author.id, state['last_movement_id'],
         )
         if movement_id is None:

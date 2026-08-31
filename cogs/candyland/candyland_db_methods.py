@@ -178,7 +178,7 @@ def get_all_state(event_id, testdb=None):
     return cursor.fetchall()
 
 
-def record_movement(team_id, kind, board_slug, dice_values, from_sequence,
+def record_movement(team_id, kind, board_slug, roll_total, from_sequence,
                     to_sequence, proof_thread_id, invoked_by_user_id, note,
                     testdb=None):
     db = testdb if testdb else connection.create_connection()
@@ -186,7 +186,7 @@ def record_movement(team_id, kind, board_slug, dice_values, from_sequence,
 
     query = """
         insert into movement
-            (team_id, kind, board_slug, dice_values, from_sequence, to_sequence,
+            (team_id, kind, board_slug, roll_total, from_sequence, to_sequence,
              proof_thread_id, invoked_by_user_id, note)
         values (%s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
@@ -194,7 +194,7 @@ def record_movement(team_id, kind, board_slug, dice_values, from_sequence,
         team_id,
         kind,
         board_slug,
-        dice_values,
+        roll_total,
         from_sequence,
         to_sequence,
         proof_thread_id,
@@ -250,7 +250,7 @@ def refold_team_state(team_id, testdb=None):
     return get_team_state(team_id, testdb=testdb)
 
 
-def advance_team_by_roll(team_id, board_slug, dice_values, from_sequence,
+def advance_team_by_roll(team_id, board_slug, roll_total, from_sequence,
                          to_sequence, proof_thread_id, invoked_by_user_id,
                          expected_movement_id, testdb=None):
     # The one place in the codebase that needs a real transaction: two team
@@ -281,7 +281,7 @@ def advance_team_by_roll(team_id, board_slug, dice_values, from_sequence,
             return None
 
         movement_id = record_movement(
-            team_id, 'roll', board_slug, dice_values, from_sequence, to_sequence,
+            team_id, 'roll', board_slug, roll_total, from_sequence, to_sequence,
             proof_thread_id, invoked_by_user_id, None, testdb=db,
         )
         refold_team_state(team_id, testdb=db)
