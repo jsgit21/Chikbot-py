@@ -8,6 +8,34 @@ _THREAD_BODY = (
     '<#{channel}>.\n{role}'
 )
 _ARCHIVE_REASON = 'candyland: tile proven, team advanced'
+_CLEAR_REASON = 'candyland: /candyland clear teardown'
+
+
+def build_team_forum_overwrites(guild, team_role, moderator_role, event_planner_role):
+    """Permission overwrites for a team's private forum. @everyone cannot see it;
+    the team posts; mods and event planners moderate; the bot has full control."""
+    member = discord.PermissionOverwrite(
+        view_channel=True, read_message_history=True, send_messages=True,
+        send_messages_in_threads=True, create_public_threads=True,
+        attach_files=True, embed_links=True, add_reactions=True,
+    )
+    staff = discord.PermissionOverwrite(
+        view_channel=True, read_message_history=True, send_messages=True,
+        send_messages_in_threads=True, create_public_threads=True,
+        attach_files=True, embed_links=True, add_reactions=True,
+        manage_threads=True, manage_messages=True,
+    )
+    return {
+        guild.default_role: discord.PermissionOverwrite(view_channel=False),
+        team_role: member,
+        moderator_role: staff,
+        event_planner_role: staff,
+        guild.me: discord.PermissionOverwrite(
+            view_channel=True, read_message_history=True, send_messages=True,
+            send_messages_in_threads=True, create_public_threads=True,
+            manage_threads=True, manage_messages=True, manage_channels=True,
+        ),
+    }
 
 
 async def resolve_channel(bot, channel_id):
@@ -72,6 +100,53 @@ async def delete_tile_threads(bot, thread_ids):
             missing.append(thread_id)
         except discord.HTTPException as e:
             failed.append(f'{thread_id}: {e!r}')
+    return {'deleted': deleted, 'missing': missing, 'failed': failed}
+
+
+async def delete_team_forums(bot, forum_ids):
+    """Delete each team forum by id. Tolerant of an already-gone channel; refuses
+    anything that is not a ForumChannel. Never touches the parent category."""
+    deleted, missing, failed = [], [], []
+    for forum_id in forum_ids:
+        try:
+            channel = await resolve_channel(bot, forum_id)
+        except discord.NotFound:
+            missing.append(forum_id)
+            continue
+        if not isinstance(channel, discord.ForumChannel):
+            failed.append(f'{forum_id}: not a forum channel ({type(channel).__name__})')
+            continue
+        try:
+            await channel.delete(reason=_CLEAR_REASON)
+            deleted.append(forum_id)
+        except discord.NotFound:
+            missing.append(forum_id)
+        except discord.HTTPException as e:
+            failed.append(f'{forum_id}: {e!r}')
+    return {'deleted': deleted, 'missing': missing, 'failed': failed}
+
+
+async def delete_team_roles(guild, role_ids, protected_ids):
+    """Delete each team role by id. Skips a None id or a protected staff id; refuses
+    a managed (integration) role. Tolerant of an already-gone role."""
+    deleted, missing, failed = [], [], []
+    for role_id in role_ids:
+        if role_id is None or role_id in protected_ids:
+            continue
+        role = guild.get_role(role_id)
+        if role is None:
+            missing.append(role_id)
+            continue
+        if role.managed:
+            failed.append(f'{role_id}: managed role, refused')
+            continue
+        try:
+            await role.delete(reason=_CLEAR_REASON)
+            deleted.append(role_id)
+        except discord.NotFound:
+            missing.append(role_id)
+        except discord.HTTPException as e:
+            failed.append(f'{role_id}: {e!r}')
     return {'deleted': deleted, 'missing': missing, 'failed': failed}
 
 

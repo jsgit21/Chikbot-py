@@ -370,23 +370,16 @@ def swap_open_thread(team_id, tile_sequence, new_thread_id, old_thread_row_id,
         raise
 
 
-def clear_event_play_data(event_id, testdb=None):
-    # Test-only reset: wipe every play-generated row for the event's teams and
-    # send the event back to 'setup' so /candyland start can run again. Keeps the
-    # event and its teams. Never call this on a real event.
+def clear_event_teams(event_id, testdb=None):
+    # Test-only reset: drop every team for the event (FKs cascade to movement,
+    # tile_thread, team_state, bounty_use) and send the event back to 'setup'.
+    # Keeps the event row. Never call this on a real event.
     db = testdb if testdb else connection.create_connection()
     db.begin()
     try:
         cursor = db.cursor()
-        for stmt in (
-            "delete bu from bounty_use bu join team t on t.id = bu.team_id where t.event_id = %s",
-            "delete m from movement m join team t on t.id = m.team_id where t.event_id = %s",
-            "delete tt from tile_thread tt join team t on t.id = tt.team_id where t.event_id = %s",
-            "update team_state s join team t on t.id = s.team_id "
-            "   set s.current_sequence = 1, s.last_movement_id = null where t.event_id = %s",
-            "update event set status = 'setup' where id = %s",
-        ):
-            cursor.execute(stmt, (event_id,))
+        cursor.execute("delete from team where event_id = %s", (event_id,))
+        cursor.execute("update event set status = 'setup' where id = %s", (event_id,))
         db.commit()
     except Exception:
         db.rollback()
