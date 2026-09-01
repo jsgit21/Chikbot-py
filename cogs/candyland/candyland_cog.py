@@ -309,13 +309,13 @@ class Candyland(commands.Cog):
 
         # --- commit point passed: the roll counts from here no matter what ---
 
-        art = dice_art.render(die)
+        art = dice_art.render_inline_lines(die)
         final = to_sequence == board_size
         final_tag = '  🏁 **FINAL TILE!**' if final else ''
         announcement = await ctx.channel.send(
             f'🎲 {ctx.author.mention} rolled for **{team["name"]}**!\n'
             f'**{die}**  ·  tile {from_sequence} → **{to_sequence}**{final_tag}\n'
-            f'```\n{art}\n```',
+            f'{art}',
             allowed_mentions=discord.AllowedMentions(users=False, roles=False),
         )
         await ctx.followup.send('Your roll is in - see the board above.', ephemeral=True)
