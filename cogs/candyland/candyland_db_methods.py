@@ -476,25 +476,15 @@ def swap_open_thread(team_id, tile_sequence, new_thread_id, old_thread_row_id,
         raise
 
 
-def get_thread_for_tile(team_id, tile_sequence, testdb=None):
-    db = testdb if testdb else connection.create_connection()
-    cursor = db.cursor(pymysql.cursors.DictCursor)
-    cursor.execute(
-        """
-        select id, team_id, tile_sequence, thread_id, state
-          from tile_thread
-         where team_id = %s
-           and tile_sequence = %s
-        """,
-        (team_id, tile_sequence),
-    )
-    return cursor.fetchone()
-
-
-def reopen_tile_thread(team_id, tile_sequence, old_thread_row_id, testdb=None):
-    # RETREAT/ADVANCE onto a tile the team already has a (closed) thread row for:
-    # flip that row back to open and close the current one, as one transaction
-    # so the one-open-thread-per-team invariant never briefly breaks.
+def move_open_thread_to_tile(team_id, tile_sequence, new_thread_id, testdb=None):
+    # Make tile_sequence the team's single open tile thread, pointed at
+    # new_thread_id, as one transaction. Used by the bounty claims that replace
+    # the tile task (Retreat/Advance move to a new tile; Swap/Double Down stay
+    # on the current one). A fresh Discord thread is always created, so if a row
+    # already exists for (team_id, tile_sequence) it is repointed at the new
+    # thread and reopened rather than inserted (the unique key forbids a second
+    # row). Any other open row for the team is closed first, so the one open
+    # thread per team invariant never briefly breaks.
     db = testdb if testdb else connection.create_connection()
     db.begin()
     try:
@@ -502,19 +492,33 @@ def reopen_tile_thread(team_id, tile_sequence, old_thread_row_id, testdb=None):
         cursor.execute(
             """
             update tile_thread
-               set state = 'open', closed_at = null
-             where team_id = %s and tile_sequence = %s
+               set state = 'closed', closed_at = now()
+             where team_id = %s and state = 'open'
             """,
-            (team_id, tile_sequence),
+            (team_id,),
         )
         cursor.execute(
-            """
-            update tile_thread
-               set state = 'closed', closed_at = now()
-             where id = %s
-            """,
-            (old_thread_row_id,),
+            "select id from tile_thread where team_id = %s and tile_sequence = %s",
+            (team_id, tile_sequence),
         )
+        row = cursor.fetchone()
+        if row:
+            cursor.execute(
+                """
+                update tile_thread
+                   set thread_id = %s, state = 'open', closed_at = null
+                 where id = %s
+                """,
+                (new_thread_id, row[0]),
+            )
+        else:
+            cursor.execute(
+                """
+                insert into tile_thread (team_id, tile_sequence, thread_id)
+                values (%s, %s, %s)
+                """,
+                (team_id, tile_sequence, new_thread_id),
+            )
         db.commit()
     except Exception:
         db.rollback()

@@ -32,11 +32,15 @@ BOUNTY_MECHANIC = {
     'SWAP': 'This tile is cleared. The team rolls normally next.',
 }
 
-# Bounty sequencing: a team may not chain bounties across a single tile. The
-# exception is that a Disadvantage or Advantage claim (which only biases the
-# next roll, without committing the team's position) may be followed by one
-# +/-1 move. Every other bounty is a hard stop until the team completes the
-# tile and rolls. Enforced in the cog off get_last_bounty_since_roll.
+# Disadvantage and Advantage are the two bounties that only bias the team's
+# next roll without committing its position or replacing the tile task. They
+# behave differently on two axes:
+#   - Sequencing: a team may not chain bounties across one tile, but a +/-1
+#     move (Retreat/Advance) may still follow one of these two. Every other
+#     bounty is a hard stop until the team completes the tile and rolls.
+#   - Threads: these two keep the current tile thread; the other four each get
+#     a fresh, labelled thread so their alternative task's proof starts clean.
+# Both enforced in the cog (sequencing off get_last_bounty_since_roll).
 SOFT_LOCK_KEYS = {'DISADVANTAGE', 'ADVANTAGE'}
 MOVE_KEYS = {'RETREAT', 'ADVANCE'}
 

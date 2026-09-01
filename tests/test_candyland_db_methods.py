@@ -171,6 +171,56 @@ def test_swap_open_thread_moves_the_single_open_row(test_db, setup_candyland_tab
     assert cursor.fetchone()['n'] == 1
 
 
+def test_move_open_thread_to_tile_repoints_an_existing_row(test_db, setup_candyland_tables):
+    event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
+    team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
+    old = candyland_methods.open_tile_thread(team_id, 7, 700, testdb=test_db)
+    candyland_methods.close_tile_thread(old, testdb=test_db)
+    candyland_methods.open_tile_thread(team_id, 8, 800, testdb=test_db)
+
+    candyland_methods.move_open_thread_to_tile(team_id, 7, 701, testdb=test_db)
+
+    open_row = candyland_methods.get_open_thread(team_id, testdb=test_db)
+    assert open_row['id'] == old
+    assert open_row['tile_sequence'] == 7
+    assert open_row['thread_id'] == 701
+
+    cursor = test_db.cursor(pymysql.cursors.DictCursor)
+    cursor.execute(f"select count(*) as n from {TEST_DATABASE}.tile_thread "
+                   f"where team_id = %s and state = 'open'", (team_id,))
+    assert cursor.fetchone()['n'] == 1
+
+
+def test_move_open_thread_to_tile_same_tile_swaps_thread_id(test_db, setup_candyland_tables):
+    event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
+    team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
+    row_id = candyland_methods.open_tile_thread(team_id, 5, 500, testdb=test_db)
+
+    candyland_methods.move_open_thread_to_tile(team_id, 5, 501, testdb=test_db)
+
+    open_row = candyland_methods.get_open_thread(team_id, testdb=test_db)
+    assert open_row['id'] == row_id
+    assert open_row['tile_sequence'] == 5
+    assert open_row['thread_id'] == 501
+
+
+def test_move_open_thread_to_tile_inserts_for_a_new_tile(test_db, setup_candyland_tables):
+    event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
+    team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
+    candyland_methods.open_tile_thread(team_id, 8, 800, testdb=test_db)
+
+    candyland_methods.move_open_thread_to_tile(team_id, 9, 900, testdb=test_db)
+
+    open_row = candyland_methods.get_open_thread(team_id, testdb=test_db)
+    assert open_row['tile_sequence'] == 9
+    assert open_row['thread_id'] == 900
+
+    cursor = test_db.cursor(pymysql.cursors.DictCursor)
+    cursor.execute(f'select count(*) as n from {TEST_DATABASE}.tile_thread where team_id = %s',
+                   (team_id,))
+    assert cursor.fetchone()['n'] == 2
+
+
 def test_clear_event_teams_drops_teams_and_cascades(test_db, setup_candyland_tables):
     event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
     team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
