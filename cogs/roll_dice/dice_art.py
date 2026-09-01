@@ -11,9 +11,6 @@ _RESULT_ROW = 1
 _RESULT_WIDTH = 7
 
 
-_FRAME_MARGIN = 5
-
-
 def render(total):
     lines = list(_DIE_ART_LINES)
     face = str(total).center(_RESULT_WIDTH)
@@ -21,16 +18,14 @@ def render(total):
     return '\n'.join(lines)
 
 
-def render_framed(total):
-    """render() inside a full rectangular border, alignment preserved.
+def render_inline_lines(total):
+    """render() with each row wrapped in its own inline-code span.
 
-    Discord always stretches a ``` block to the message width; the border makes
-    that width read as a deliberate panel instead of art stranded in whitespace.
-    The cube's leading spaces carry the isometric alignment, so pad, don't strip.
+    A ``` block stretches to the full Discord message width; per-line inline code
+    keeps each row only as wide as its text. Rows are padded to a common width so
+    the pills line up. Discord trims one leading/trailing space inside inline
+    code, so pad with an extra space on each side to protect the alignment.
     """
     art = [line.rstrip() for line in render(total).split('\n')]
-    inner = max(len(line) for line in art) + 2 * _FRAME_MARGIN
-    pad = ' ' * _FRAME_MARGIN
-    border = '+' + '-' * inner + '+'
-    body = ['|' + (pad + line).ljust(inner) + '|' for line in art]
-    return '\n'.join([border, *body, border])
+    width = max(len(line) for line in art)
+    return '\n'.join(f'` {line.ljust(width)} `' for line in art)
