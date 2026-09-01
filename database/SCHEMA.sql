@@ -75,7 +75,7 @@ create table candyland.movement (
   id int unsigned primary key auto_increment,
   team_id int unsigned not null,
   kind enum('roll','adjustment','board_transition') not null,
-  roll_total tinyint unsigned,              -- 1d4+1 result, 2..5; null for adjustment/board_transition. start/end are from_sequence/to_sequence
+  roll_total tinyint unsigned,              -- roll result, 2..5 normally, up to 10 with a Double Down bounty; null for adjustment/board_transition. start/end are from_sequence/to_sequence
   from_sequence int not null,
   to_sequence int not null,
   proof_thread_id bigint unsigned,          -- the thread whose images justified this move
@@ -103,7 +103,7 @@ create table candyland.bounty_use (
   id int unsigned primary key auto_increment,
   team_id int unsigned not null,
   board_number tinyint unsigned not null,   -- which board the used-on tile is on, at write time; "each bounty once per board"
-  bounty_key varchar(16) not null,          -- 'A'..'D','BOOST','UNDERSTUDY','SWAP'
+  bounty_key varchar(16) not null,          -- RETREAT, ADVANCE, DISADVANTAGE, ADVANTAGE, DOUBLE_DOWN, SWAP
   used_on_sequence int not null,
   movement_id int unsigned,
   created_at timestamp default current_timestamp,

@@ -2,6 +2,8 @@ import asyncio
 
 import discord
 
+from cogs.candyland import candyland_bounty
+
 _THREAD_BODY = (
     '**Tile {tile}**\n'
     'Post your proof images in this thread, then run `/candyland roll` in '
@@ -184,6 +186,60 @@ async def run_post_roll_ceremony(bot, database, team, team_role,
         # Leave the old thread usable: it is still the team's open row in the DB,
         # so locking it now would strand them with nowhere to post proof.
         return result
+
+    try:
+        await lock_and_archive(bot, old_thread_row['thread_id'])
+        result['steps']['archive_old_thread'] = 'ok'
+    except Exception as e:
+        result['steps']['archive_old_thread'] = 'FAIL'
+        result['failures'].append(f'archive_old_thread: {e!r}')
+
+    return result
+
+
+async def post_bounty_note(bot, thread_id, bounty_key):
+    thread = await resolve_channel(bot, thread_id)
+    name = candyland_bounty.BOUNTY_NAMES[bounty_key]
+    await thread.send(
+        f'🎁 This team took the **{name}** bounty against this tile.\n'
+        f'{candyland_bounty.BOUNTY_MECHANIC[bounty_key]}'
+    )
+
+
+async def run_bounty_move_ceremony(bot, database, team, team_role,
+                                   mainbingo_channel_id, to_sequence,
+                                   old_thread_row):
+    result = {'steps': {}, 'open_thread_id': None, 'failures': []}
+
+    existing = await asyncio.to_thread(
+        database.get_thread_for_tile, team['id'], to_sequence
+    )
+    try:
+        if existing:
+            await asyncio.to_thread(
+                database.reopen_tile_thread, team['id'], to_sequence,
+                old_thread_row['id'],
+            )
+            thread = await resolve_channel(bot, existing['thread_id'])
+            await thread.edit(archived=False, locked=False,
+                              reason=_ARCHIVE_REASON)
+            result['open_thread_id'] = existing['thread_id']
+            result['steps']['reopen_thread'] = 'ok'
+        else:
+            new_thread = await open_tile_thread(
+                bot, team['forum_channel_id'], mainbingo_channel_id, team_role,
+                to_sequence,
+            )
+            await asyncio.to_thread(
+                database.swap_open_thread, team['id'], to_sequence,
+                new_thread.id, old_thread_row['id'],
+            )
+            result['open_thread_id'] = new_thread.id
+            result['steps']['create_thread'] = 'ok'
+    except Exception as e:
+        result['steps']['move_thread'] = 'FAIL'
+        result['failures'].append(f'move_thread: {e!r}')
+        return result  # old thread stays the open row; team can still post
 
     try:
         await lock_and_archive(bot, old_thread_row['thread_id'])

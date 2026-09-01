@@ -2,6 +2,7 @@ import json
 
 import pymysql
 
+from . import candyland_board, candyland_bounty
 from . import candyland_connection as connection
 
 
@@ -276,6 +277,111 @@ def advance_team_by_roll(team_id, roll_total, from_sequence,
         raise
 
 
+def claim_bounty(team_id, bounty_key, invoked_by_user_id, expected_movement_id,
+                 testdb=None):
+    db = testdb if testdb else connection.create_connection()
+    db.begin()
+    try:
+        cursor = db.cursor()
+        cursor.execute(
+            """
+            select last_movement_id, current_sequence
+              from team_state
+             where team_id = %s
+             for update
+            """,
+            (team_id,),
+        )
+        locked = cursor.fetchone()
+        if locked is None:
+            db.rollback()
+            return {'ok': False, 'reason': 'conflict'}
+
+        locked_movement_id, from_sequence = locked
+        if locked_movement_id != expected_movement_id:
+            db.rollback()
+            return {'ok': False, 'reason': 'conflict'}
+
+        board_number = candyland_board.board_of(from_sequence)
+        to_sequence = candyland_bounty.destination(
+            bounty_key, from_sequence,
+            candyland_board.board_final_tile(from_sequence),
+        )
+        moved = to_sequence != from_sequence
+
+        movement_id = record_movement(
+            team_id, 'adjustment', None, from_sequence, to_sequence,
+            None, invoked_by_user_id, f'bounty:{bounty_key}', testdb=db,
+        )
+        try:
+            record_bounty_use(
+                team_id, board_number, bounty_key, from_sequence, movement_id,
+                testdb=db,
+            )
+        except pymysql.err.IntegrityError:
+            db.rollback()
+            return {'ok': False, 'reason': 'already_used'}
+
+        refold_team_state(team_id, testdb=db)
+        db.commit()
+        return {
+            'ok': True,
+            'bounty_key': bounty_key,
+            'board_number': board_number,
+            'from_sequence': from_sequence,
+            'to_sequence': to_sequence,
+            'moved': moved,
+            'movement_id': movement_id,
+        }
+    except Exception:
+        db.rollback()
+        raise
+
+
+def get_pending_modifier(team_id, testdb=None):
+    db = testdb if testdb else connection.create_connection()
+    cursor = db.cursor()
+
+    query = """
+        select bu.bounty_key
+          from bounty_use bu
+         where bu.team_id = %s
+           and bu.bounty_key in ('DISADVANTAGE', 'ADVANTAGE', 'DOUBLE_DOWN')
+           and bu.movement_id is not null
+           and bu.movement_id > coalesce(
+                 (select max(m.id) from movement m
+                   where m.team_id = %s and m.kind = 'roll'), 0)
+         order by bu.movement_id desc
+         limit 1
+    """
+    cursor.execute(query, (team_id, team_id))
+    row = cursor.fetchone()
+    return row[0] if row else None
+
+
+def get_last_bounty_since_roll(team_id, testdb=None):
+    # The bounty_key of the team's most recent bounty_use since its last roll,
+    # or None if it has rolled since (or never used one). Drives the sequencing
+    # gate in the cog: a team may not chain bounties across one tile.
+    db = testdb if testdb else connection.create_connection()
+    cursor = db.cursor()
+
+    query = """
+        select bu.bounty_key
+          from bounty_use bu
+         where bu.team_id = %s
+           and bu.movement_id is not null
+           and bu.movement_id > coalesce(
+                 (select max(m.id) from movement m
+                   where m.team_id = %s and m.kind = 'roll'), 0)
+         order by bu.movement_id desc
+         limit 1
+    """
+    cursor.execute(query, (team_id, team_id))
+    row = cursor.fetchone()
+    return row[0] if row else None
+
+
 def open_tile_thread(team_id, tile_sequence, thread_id, testdb=None):
     db = testdb if testdb else connection.create_connection()
     cursor = db.cursor()
@@ -364,6 +470,51 @@ def swap_open_thread(team_id, tile_sequence, new_thread_id, old_thread_row_id,
     try:
         open_tile_thread(team_id, tile_sequence, new_thread_id, testdb=db)
         close_tile_thread(old_thread_row_id, testdb=db)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+
+def get_thread_for_tile(team_id, tile_sequence, testdb=None):
+    db = testdb if testdb else connection.create_connection()
+    cursor = db.cursor(pymysql.cursors.DictCursor)
+    cursor.execute(
+        """
+        select id, team_id, tile_sequence, thread_id, state
+          from tile_thread
+         where team_id = %s
+           and tile_sequence = %s
+        """,
+        (team_id, tile_sequence),
+    )
+    return cursor.fetchone()
+
+
+def reopen_tile_thread(team_id, tile_sequence, old_thread_row_id, testdb=None):
+    # RETREAT/ADVANCE onto a tile the team already has a (closed) thread row for:
+    # flip that row back to open and close the current one, as one transaction
+    # so the one-open-thread-per-team invariant never briefly breaks.
+    db = testdb if testdb else connection.create_connection()
+    db.begin()
+    try:
+        cursor = db.cursor()
+        cursor.execute(
+            """
+            update tile_thread
+               set state = 'open', closed_at = null
+             where team_id = %s and tile_sequence = %s
+            """,
+            (team_id, tile_sequence),
+        )
+        cursor.execute(
+            """
+            update tile_thread
+               set state = 'closed', closed_at = now()
+             where id = %s
+            """,
+            (old_thread_row_id,),
+        )
         db.commit()
     except Exception:
         db.rollback()

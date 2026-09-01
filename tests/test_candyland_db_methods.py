@@ -1,6 +1,8 @@
 import pytest
 import pymysql
 from database import db_methods
+from cogs.candyland import candyland_board
+from cogs.candyland import candyland_bounty
 from cogs.candyland import candyland_db_methods as candyland_methods
 
 TEST_DATABASE = 'candyland_test'
@@ -230,3 +232,172 @@ def test_get_all_state_one_row_per_team_in_sort_order(test_db, setup_candyland_t
 
     assert [r['name'] for r in rows] == ['Alpha', 'Bravo', 'Charlie']
     assert all(r['current_sequence'] == 1 for r in rows)
+
+
+def test_board_of_boundaries():
+    assert candyland_board.board_of(1) == 1
+    assert candyland_board.board_of(candyland_board.BOARD1_SIZE) == 1
+    assert candyland_board.board_of(candyland_board.BOARD1_SIZE + 1) == 2
+    assert candyland_board.board_of(candyland_board.TOTAL_TILES) == 2
+
+
+def test_board_edge_tiles():
+    b1_last = candyland_board.BOARD1_SIZE
+    b2_first = candyland_board.BOARD1_SIZE + 1
+    b2_last = candyland_board.TOTAL_TILES
+    for seq in (1, b1_last, b2_first, b2_last):
+        assert candyland_board.is_board_edge_tile(seq)
+    for seq in (2, b1_last - 1, b2_first + 1, b2_last - 1):
+        assert not candyland_board.is_board_edge_tile(seq)
+
+
+def test_claim_bounty_retreat_moves_team_back(test_db, setup_candyland_tables):
+    event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
+    team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
+    candyland_methods.advance_team_by_roll(team_id, 4, 1, 5, 900, 42, None, testdb=test_db)
+    state = candyland_methods.get_team_state(team_id, testdb=test_db)
+
+    result = candyland_methods.claim_bounty(
+        team_id, 'RETREAT', 42, state['last_movement_id'], testdb=test_db
+    )
+
+    assert result['ok']
+    assert result['to_sequence'] == 4
+    assert result['moved']
+
+    state = candyland_methods.get_team_state(team_id, testdb=test_db)
+    assert state['current_sequence'] == 4
+
+    cursor = test_db.cursor(pymysql.cursors.DictCursor)
+    cursor.execute(
+        f"select * from {TEST_DATABASE}.movement where team_id = %s and kind = 'adjustment'",
+        (team_id,),
+    )
+    rows = cursor.fetchall()
+    assert len(rows) == 1
+    assert rows[0]['from_sequence'] == 5
+    assert rows[0]['to_sequence'] == 4
+
+    cursor.execute(f'select * from {TEST_DATABASE}.bounty_use where team_id = %s', (team_id,))
+    bounty_rows = cursor.fetchall()
+    assert len(bounty_rows) == 1
+    assert bounty_rows[0]['board_number'] == 1
+    assert bounty_rows[0]['used_on_sequence'] == 5
+
+
+def test_claim_bounty_modifier_does_not_move(test_db, setup_candyland_tables):
+    event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
+    team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
+    candyland_methods.advance_team_by_roll(team_id, 4, 1, 5, 900, 42, None, testdb=test_db)
+    state = candyland_methods.get_team_state(team_id, testdb=test_db)
+
+    result = candyland_methods.claim_bounty(
+        team_id, 'DISADVANTAGE', 42, state['last_movement_id'], testdb=test_db
+    )
+
+    assert result['moved'] is False
+    state = candyland_methods.get_team_state(team_id, testdb=test_db)
+    assert state['current_sequence'] == 5
+
+    cursor = test_db.cursor(pymysql.cursors.DictCursor)
+    cursor.execute(
+        f"select * from {TEST_DATABASE}.movement where team_id = %s and kind = 'adjustment'",
+        (team_id,),
+    )
+    row = cursor.fetchone()
+    assert row['from_sequence'] == row['to_sequence'] == 5
+
+
+def test_bounty_destination_clamps():
+    assert candyland_bounty.destination('RETREAT', 1, 42) == 1
+    assert candyland_bounty.destination('RETREAT', 5, 42) == 4
+    assert candyland_bounty.destination('ADVANCE', 42, 42) == 42
+    assert candyland_bounty.destination('ADVANCE', 5, 42) == 6
+    assert candyland_bounty.destination('DISADVANTAGE', 5, 42) == 5
+
+
+def test_claim_bounty_duplicate_refused(test_db, setup_candyland_tables):
+    event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
+    team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
+    candyland_methods.advance_team_by_roll(team_id, 4, 1, 5, 900, 42, None, testdb=test_db)
+    state = candyland_methods.get_team_state(team_id, testdb=test_db)
+
+    first = candyland_methods.claim_bounty(
+        team_id, 'SWAP', 42, state['last_movement_id'], testdb=test_db
+    )
+    assert first['ok']
+
+    state = candyland_methods.get_team_state(team_id, testdb=test_db)
+    second = candyland_methods.claim_bounty(
+        team_id, 'SWAP', 42, state['last_movement_id'], testdb=test_db
+    )
+
+    assert second == {'ok': False, 'reason': 'already_used'}
+
+    cursor = test_db.cursor(pymysql.cursors.DictCursor)
+    cursor.execute(f'select * from {TEST_DATABASE}.bounty_use where team_id = %s', (team_id,))
+    assert len(cursor.fetchall()) == 1
+    cursor.execute(
+        f"select count(*) as n from {TEST_DATABASE}.movement where team_id = %s and kind = 'adjustment'",
+        (team_id,),
+    )
+    assert cursor.fetchone()['n'] == 1
+
+
+def test_get_pending_modifier_consumed_by_roll(test_db, setup_candyland_tables):
+    event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
+    team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
+    candyland_methods.advance_team_by_roll(team_id, 4, 1, 5, 900, 42, None, testdb=test_db)
+    state = candyland_methods.get_team_state(team_id, testdb=test_db)
+
+    candyland_methods.claim_bounty(
+        team_id, 'ADVANTAGE', 42, state['last_movement_id'], testdb=test_db
+    )
+    assert candyland_methods.get_pending_modifier(team_id, testdb=test_db) == 'ADVANTAGE'
+
+    state = candyland_methods.get_team_state(team_id, testdb=test_db)
+    candyland_methods.advance_team_by_roll(
+        team_id, 3, state['current_sequence'], state['current_sequence'] + 3,
+        900, 42, state['last_movement_id'], testdb=test_db
+    )
+
+    assert candyland_methods.get_pending_modifier(team_id, testdb=test_db) is None
+
+
+def test_get_last_bounty_since_roll_tracks_latest_then_clears(test_db, setup_candyland_tables):
+    event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
+    team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
+    candyland_methods.advance_team_by_roll(team_id, 4, 1, 5, 900, 42, None, testdb=test_db)
+
+    assert candyland_methods.get_last_bounty_since_roll(team_id, testdb=test_db) is None
+
+    state = candyland_methods.get_team_state(team_id, testdb=test_db)
+    candyland_methods.claim_bounty(
+        team_id, 'DISADVANTAGE', 42, state['last_movement_id'], testdb=test_db
+    )
+    state = candyland_methods.get_team_state(team_id, testdb=test_db)
+    candyland_methods.claim_bounty(
+        team_id, 'RETREAT', 42, state['last_movement_id'], testdb=test_db
+    )
+
+    assert candyland_methods.get_last_bounty_since_roll(team_id, testdb=test_db) == 'RETREAT'
+
+    state = candyland_methods.get_team_state(team_id, testdb=test_db)
+    candyland_methods.advance_team_by_roll(
+        team_id, 3, state['current_sequence'], state['current_sequence'] + 3,
+        900, 42, state['last_movement_id'], testdb=test_db
+    )
+
+    assert candyland_methods.get_last_bounty_since_roll(team_id, testdb=test_db) is None
+
+
+def test_replay_folds_adjustment_from_bounty(test_db, setup_candyland_tables):
+    event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
+    team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
+
+    candyland_methods.record_movement(team_id, 'roll', 4, 1, 5, None, None, None, testdb=test_db)
+    candyland_methods.record_movement(team_id, 'adjustment', None, 5, 4, None, None, 'bounty:RETREAT', testdb=test_db)
+
+    state = candyland_methods.refold_team_state(team_id, testdb=test_db)
+
+    assert state['current_sequence'] == 4
