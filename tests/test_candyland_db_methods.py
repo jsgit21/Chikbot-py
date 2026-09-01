@@ -190,6 +190,23 @@ def test_clear_event_play_data_resets_teams_and_status(test_db, setup_candyland_
     assert cursor.fetchone()['n'] == 0
 
 
+def test_get_all_tile_threads_returns_only_event_threads(test_db, setup_candyland_tables):
+    event_a = candyland_methods.create_event('a', None, None, testdb=test_db)
+    team_a = candyland_methods.register_team(event_a, 'Reds', 11, 12, 0, testdb=test_db)
+    candyland_methods.open_tile_thread(team_a, 3, 900, testdb=test_db)
+
+    event_b = candyland_methods.create_event('b', None, None, testdb=test_db)
+    team_b = candyland_methods.register_team(event_b, 'Blues', 21, 22, 0, testdb=test_db)
+    candyland_methods.open_tile_thread(team_b, 5, 901, testdb=test_db)
+
+    rows = candyland_methods.get_all_tile_threads(event_a, testdb=test_db)
+
+    assert len(rows) == 1
+    assert rows[0]['team_id'] == team_a
+    assert rows[0]['thread_id'] == 900
+    assert rows[0]['tile_sequence'] == 3
+
+
 def test_get_all_state_one_row_per_team_in_sort_order(test_db, setup_candyland_tables):
     event_id = candyland_methods.create_event('cgl-2026', None, None, testdb=test_db)
     candyland_methods.register_team(event_id, 'Bravo', 20, 21, 1, testdb=test_db)

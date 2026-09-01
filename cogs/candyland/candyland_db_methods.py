@@ -324,6 +324,22 @@ def get_open_thread(team_id, testdb=None):
     return cursor.fetchone()
 
 
+def get_all_tile_threads(event_id, testdb=None):
+    db = testdb if testdb else connection.create_connection()
+    cursor = db.cursor(pymysql.cursors.DictCursor)
+
+    query = """
+        select tt.id, tt.team_id, tt.tile_sequence, tt.thread_id, tt.state
+          from tile_thread tt
+          join team t
+            on t.id = tt.team_id
+         where t.event_id = %s
+         order by tt.id
+    """
+    cursor.execute(query, (event_id,))
+    return cursor.fetchall()
+
+
 def close_tile_thread(thread_row_id, testdb=None):
     db = testdb if testdb else connection.create_connection()
     cursor = db.cursor()

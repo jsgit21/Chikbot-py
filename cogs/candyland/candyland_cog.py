@@ -7,7 +7,7 @@ register teams, and read board state back.
 Phase B: /candyland start (group kick-off, opens every team's tile-1 forum
 thread), /candyland roll (1d4+1 movement in #mainbingo plus the per-tile forum
 ceremony, the movement writes and the state fold), and /candyland clear (reset a
-test event).
+test event, including deleting its Discord tile threads).
 
 Phase C (not here): bounty logic, the doomsday reveal, the board-1->2
 transition, a thread-repair command. Phase D (not here): the website board.
@@ -288,16 +288,37 @@ class Candyland(commands.Cog):
             await ctx.respond(f'No candyland event with slug **{event_slug}**.')
             return
 
+        await ctx.defer()
+
+        thread_rows = await asyncio.to_thread(
+            database.get_all_tile_threads, event['id']
+        )
+        threads = await candyland_ceremony.delete_tile_threads(
+            self.bot, [r['thread_id'] for r in thread_rows]
+        )
+
         await asyncio.to_thread(database.clear_event_play_data, event['id'])
         await asyncio.to_thread(
             database.write_audit, ctx.author.id, 'clear',
-            {'event_slug': event_slug, 'event_id': event['id']},
+            {'event_slug': event_slug, 'event_id': event['id'],
+             'threads_deleted': len(threads['deleted']),
+             'threads_missing': len(threads['missing']),
+             'threads_failed': threads['failed']},
         )
-        await ctx.respond(
-            f'Cleared **{event_slug}**: movement, tile threads, bounty use and '
-            f'team state wiped, status back to `setup`. The Discord forum threads '
-            f'are not touched - archive or delete those by hand.'
-        )
+
+        lines = [
+            f'Cleared **{event_slug}**: movement, tile-thread records, bounty '
+            f'use and team state wiped, status back to `setup`.'
+        ]
+        if threads['deleted'] or threads['missing']:
+            lines.append(
+                f'Deleted {len(threads["deleted"])} Discord tile thread(s); '
+                f'{len(threads["missing"])} were already gone.'
+            )
+        if threads['failed']:
+            lines.append('Could not delete: ' + '; '.join(threads['failed']))
+        lines.append('The team forum channels themselves are untouched.')
+        await ctx.respond('\n'.join(lines))
 
     async def cog_command_error(self, ctx, error):
         if isinstance(error, discord.errors.CheckFailure):

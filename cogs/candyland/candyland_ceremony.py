@@ -59,6 +59,22 @@ async def open_tile_thread(bot, forum_channel_id, mainbingo_channel_id,
     return thread
 
 
+async def delete_tile_threads(bot, thread_ids):
+    """Delete each forum thread by id. Tolerant of a thread that is already
+    gone or that the bot cannot delete; never touches the parent forum."""
+    deleted, missing, failed = [], [], []
+    for thread_id in thread_ids:
+        try:
+            thread = await resolve_channel(bot, thread_id)
+            await thread.delete(reason='candyland: test event cleared')
+            deleted.append(thread_id)
+        except discord.NotFound:
+            missing.append(thread_id)
+        except discord.HTTPException as e:
+            failed.append(f'{thread_id}: {e!r}')
+    return {'deleted': deleted, 'missing': missing, 'failed': failed}
+
+
 async def lock_and_archive(bot, thread_id):
     thread = await resolve_channel(bot, thread_id)
     await thread.edit(archived=True, locked=True, reason=_ARCHIVE_REASON)
