@@ -1,39 +1,28 @@
-create table Discord.user (
-  user_id bigint unsigned primary key,
-  username varchar(32) not null,
-  first_seen timestamp default current_timestamp
-);
+-- Board 2 continuation reshape.
+--
+-- Drops board_slug from movement/team_state/tile_thread, swaps
+-- event.board_slug -> board2_revealed_at, bounty_use.board_slug -> board_number,
+-- movement.dice_values -> roll_total, and rebuilds tile_thread's unique key as
+-- (team_id, tile_sequence). All six candyland tables are empty (zero rows), so
+-- this drops and recreates them from the current database/SCHEMA.sql rather than
+-- issuing per-column ALTERs.
+--
+-- Run against BOTH schemas, e.g.:
+--   mysql candyland      < 2026-08-31_board2_continuation.sql
+--   mysql candyland_test < 2026-08-31_board2_continuation.sql
+--
+-- `audit` is unchanged and deliberately left alone.
 
-create table Discord.user_alias (
-  user_id bigint unsigned primary key,
-  alias varchar(32),
-  unique key (user_id, alias)
-);
+set foreign_key_checks = 0;
+drop table if exists bounty_use;
+drop table if exists tile_thread;
+drop table if exists movement;
+drop table if exists team_state;
+drop table if exists team;
+drop table if exists event;
+set foreign_key_checks = 1;
 
-create table Discord.user_goal (
-  id int primary key auto_increment,
-  user_id bigint unsigned,
-  goal varchar(255),
-  completed boolean default false,
-  insert_date timestamp default current_timestamp,
-  completed_date timestamp,
-  constraint fk_parent_id foreign key (parent_id) references user_goal (id) on delete cascade
-);
-
-create view Discord.ordered_goals as (
-  select g.*,
-       (g.id <> g.parent_id) as sub_goal,
-       coalesce(s.insert_date, g.insert_date) as parent_insert_date,
-       row_number() over (
-          partition by g.user_id
-          order by coalesce(s.insert_date, g.insert_date), (g.id <> g.parent_id), g.id
-       ) as rnk
-    from Discord.user_goal g
-    left join Discord.user_goal s
-      on g.parent_id = s.id
-);
-
-create table candyland.event (
+create table event (
   id int unsigned primary key auto_increment,
   slug varchar(64) not null unique,
   board2_revealed_at datetime null,         -- set by /candyland doomsday (Phase C) to unhide Board 2
@@ -43,7 +32,7 @@ create table candyland.event (
   created_at timestamp default current_timestamp
 );
 
-create table candyland.team (
+create table team (
   id int unsigned primary key auto_increment,
   event_id int unsigned not null,
   name varchar(64) not null,
@@ -56,7 +45,16 @@ create table candyland.team (
   unique key (event_id, role_id)
 );
 
-create table candyland.tile_thread (
+create table team_state (
+  team_id int unsigned primary key,
+  current_sequence int not null default 1,
+  last_movement_id int unsigned,
+  updated_at timestamp default current_timestamp on update current_timestamp,
+  constraint fk_state_team foreign key (team_id)
+    references team (id) on delete cascade
+);
+
+create table tile_thread (
   id int unsigned primary key auto_increment,
   team_id int unsigned not null,
   tile_sequence int not null,
@@ -68,10 +66,8 @@ create table candyland.tile_thread (
     references team (id) on delete cascade,
   unique key (team_id, tile_sequence)
 );
--- At most one open thread per team is a runtime invariant enforced in code,
--- not a DB constraint (MySQL cannot do a partial unique index).
 
-create table candyland.movement (
+create table movement (
   id int unsigned primary key auto_increment,
   team_id int unsigned not null,
   kind enum('roll','adjustment','board_transition') not null,
@@ -85,21 +81,8 @@ create table candyland.movement (
   constraint fk_movement_team foreign key (team_id)
     references team (id) on delete cascade
 );
--- APPEND ONLY. Never update or delete a row. Corrections are a new
--- 'adjustment' row.
 
-create table candyland.team_state (
-  team_id int unsigned primary key,
-  current_sequence int not null default 1,
-  last_movement_id int unsigned,
-  updated_at timestamp default current_timestamp on update current_timestamp,
-  constraint fk_state_team foreign key (team_id)
-    references team (id) on delete cascade
-);
--- DERIVED. Written only by the fold in candyland_db_methods. movement is the
--- source of truth; this is a cache for cheap reads by chikbot and the website.
-
-create table candyland.bounty_use (
+create table bounty_use (
   id int unsigned primary key auto_increment,
   team_id int unsigned not null,
   board_number tinyint unsigned not null,   -- which board the used-on tile is on, at write time; "each bounty once per board"
@@ -111,13 +94,3 @@ create table candyland.bounty_use (
     references team (id) on delete cascade,
   unique key (team_id, board_number, bounty_key)
 );
-
-create table candyland.audit (
-  id int unsigned primary key auto_increment,
-  actor_user_id bigint unsigned,
-  action varchar(64) not null,
-  payload json,
-  created_at timestamp default current_timestamp
-);
-
--- tile: deferred to Phase F (board content + images)
