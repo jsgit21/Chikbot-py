@@ -2,10 +2,17 @@ import asyncio
 
 import discord
 
+from cogs.candyland import candyland_bounty
+
 _THREAD_BODY = (
     '**Tile {tile}**\n'
     'Post your proof images in this thread, then run `/candyland roll` in '
     '<#{channel}>.\n{role}'
+)
+_BOUNTY_THREAD_BODY = (
+    '**Tile {tile}  ·  [{label}] bounty**\n'
+    'This team took the **{label}** bounty. Complete the bounty task here '
+    '(not the tile task), then run `/candyland roll` in <#{channel}>.\n{role}'
 )
 _ARCHIVE_REASON = 'candyland: tile proven, team advanced'
 _CLEAR_REASON = 'candyland: /candyland clear teardown'
@@ -67,13 +74,22 @@ async def thread_has_proof_image(bot, thread_id, team_role_id):
 
 
 async def open_tile_thread(bot, forum_channel_id, mainbingo_channel_id,
-                           team_role, tile_sequence):
+                           team_role, tile_sequence, bounty_label=None):
     forum = await resolve_channel(bot, forum_channel_id)
-    body = _THREAD_BODY.format(
-        tile=tile_sequence, channel=mainbingo_channel_id, role=team_role.mention
-    )
+    if bounty_label:
+        name = f'Tile {tile_sequence} [{bounty_label}]'
+        body = _BOUNTY_THREAD_BODY.format(
+            tile=tile_sequence, label=bounty_label,
+            channel=mainbingo_channel_id, role=team_role.mention,
+        )
+    else:
+        name = f'Tile {tile_sequence}'
+        body = _THREAD_BODY.format(
+            tile=tile_sequence, channel=mainbingo_channel_id,
+            role=team_role.mention,
+        )
     thread = await forum.create_thread(
-        name=f'Tile {tile_sequence}',
+        name=name,
         content=body,
         allowed_mentions=discord.AllowedMentions(roles=[team_role]),
     )
@@ -183,6 +199,60 @@ async def run_post_roll_ceremony(bot, database, team, team_role,
         result['failures'].append(f'db_swap_open_thread: {e!r}')
         # Leave the old thread usable: it is still the team's open row in the DB,
         # so locking it now would strand them with nowhere to post proof.
+        return result
+
+    try:
+        await lock_and_archive(bot, old_thread_row['thread_id'])
+        result['steps']['archive_old_thread'] = 'ok'
+    except Exception as e:
+        result['steps']['archive_old_thread'] = 'FAIL'
+        result['failures'].append(f'archive_old_thread: {e!r}')
+
+    return result
+
+
+async def post_bounty_note(bot, thread_id, bounty_key):
+    thread = await resolve_channel(bot, thread_id)
+    name = candyland_bounty.BOUNTY_NAMES[bounty_key]
+    await thread.send(
+        f'🎁 This team took the **{name}** bounty against this tile.\n'
+        f'{candyland_bounty.BOUNTY_MECHANIC[bounty_key]}'
+    )
+
+
+async def run_bounty_thread_ceremony(bot, database, team, team_role,
+                                     mainbingo_channel_id, bounty_key,
+                                     to_sequence, old_thread_row):
+    # Every task-replacing bounty (Retreat/Advance/Double Down/Swap) gets a
+    # fresh, labelled tile thread. Always a brand new Discord thread, even when
+    # to_sequence is the current tile or one the team already has an archived
+    # thread for: the bounty task's proof must start from an empty thread, or a
+    # stale image left in the old thread would satisfy the next roll's proof
+    # check for free.
+    result = {'steps': {}, 'open_thread_id': None, 'failures': []}
+    label = candyland_bounty.BOUNTY_NAMES[bounty_key]
+
+    try:
+        new_thread = await open_tile_thread(
+            bot, team['forum_channel_id'], mainbingo_channel_id, team_role,
+            to_sequence, bounty_label=label,
+        )
+        result['open_thread_id'] = new_thread.id
+        result['steps']['create_thread'] = 'ok'
+    except Exception as e:
+        result['steps']['create_thread'] = 'FAIL'
+        result['failures'].append(f'create_thread: {e!r}')
+        return result  # old thread stays the open row; team can still post
+
+    try:
+        await asyncio.to_thread(
+            database.move_open_thread_to_tile, team['id'], to_sequence,
+            new_thread.id,
+        )
+        result['steps']['db_move_thread'] = 'ok'
+    except Exception as e:
+        result['steps']['db_move_thread'] = 'FAIL'
+        result['failures'].append(f'db_move_thread: {e!r}')
         return result
 
     try:

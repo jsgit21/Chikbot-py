@@ -35,7 +35,21 @@ def blocking_condition(thread_tile_sequence, from_sequence, board_size):
     return None
 
 
-def roll_move(from_sequence, board_size):
-    """Roll 1d4+1 and clamp the destination to the final tile."""
-    die = random.randint(1, 4) + 1
+def roll_move(from_sequence, board_size, modifier=None):
+    """Roll 1d4+1 (or a bounty-modified roll) and clamp to the final tile.
+
+    modifier: None -> single 1d4+1; 'DISADVANTAGE' -> lower of two;
+    'ADVANTAGE' -> higher of two; 'DOUBLE_DOWN' -> the two summed (4-10).
+    """
+    def d():
+        return random.randint(1, 4) + 1
+
+    if modifier == 'DISADVANTAGE':
+        die = min(d(), d())
+    elif modifier == 'ADVANTAGE':
+        die = max(d(), d())
+    elif modifier == 'DOUBLE_DOWN':
+        die = d() + d()
+    else:
+        die = d()
     return die, min(from_sequence + die, board_size)
