@@ -66,7 +66,7 @@ async def delete_tile_threads(bot, thread_ids):
     for thread_id in thread_ids:
         try:
             thread = await resolve_channel(bot, thread_id)
-            await thread.delete(reason='candyland: test event cleared')
+            await thread.delete()
             deleted.append(thread_id)
         except discord.NotFound:
             missing.append(thread_id)
