@@ -309,7 +309,7 @@ class Candyland(commands.Cog):
 
         # --- commit point passed: the roll counts from here no matter what ---
 
-        art = dice_art.render(die)
+        art = dice_art.render_framed(die)
         final = to_sequence == board_size
         final_tag = '  🏁 **FINAL TILE!**' if final else ''
         announcement = await ctx.channel.send(
