@@ -23,7 +23,7 @@ class RollDice(commands.Cog):
         else:
             summary = f'🎲 You rolled a **{result}** on a d{number_of_sides}!'
 
-        await ctx.respond(f'{summary}\n```\n{art}\n```')
+        await ctx.respond(f'{summary}\n{art}\n')
 
 
 def setup(bot):
