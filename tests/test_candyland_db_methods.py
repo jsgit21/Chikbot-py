@@ -169,25 +169,38 @@ def test_swap_open_thread_moves_the_single_open_row(test_db, setup_candyland_tab
     assert cursor.fetchone()['n'] == 1
 
 
-def test_clear_event_play_data_resets_teams_and_status(test_db, setup_candyland_tables):
+def test_clear_event_teams_drops_teams_and_cascades(test_db, setup_candyland_tables):
     event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
     team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
     candyland_methods.set_event_status('e', 'live', testdb=test_db)
     candyland_methods.advance_team_by_roll(team_id, 3, 1, 4, 900, 42, None, testdb=test_db)
     candyland_methods.open_tile_thread(team_id, 4, 901, testdb=test_db)
 
-    candyland_methods.clear_event_play_data(event_id, testdb=test_db)
+    candyland_methods.clear_event_teams(event_id, testdb=test_db)
 
     assert candyland_methods.get_event('e', testdb=test_db)['status'] == 'setup'
-    state = candyland_methods.get_team_state(team_id, testdb=test_db)
-    assert state['current_sequence'] == 1
-    assert state['last_movement_id'] is None
+    assert candyland_methods.get_teams(event_id, testdb=test_db) == []
 
     cursor = test_db.cursor(pymysql.cursors.DictCursor)
-    cursor.execute(f'select count(*) as n from {TEST_DATABASE}.movement where team_id = %s', (team_id,))
-    assert cursor.fetchone()['n'] == 0
-    cursor.execute(f'select count(*) as n from {TEST_DATABASE}.tile_thread where team_id = %s', (team_id,))
-    assert cursor.fetchone()['n'] == 0
+    for table in ('movement', 'tile_thread', 'team_state'):
+        cursor.execute(
+            f'select count(*) as n from {TEST_DATABASE}.{table} where team_id = %s',
+            (team_id,),
+        )
+        assert cursor.fetchone()['n'] == 0
+
+
+def test_clear_event_teams_leaves_other_events_intact(test_db, setup_candyland_tables):
+    keep_id = candyland_methods.create_event('keep', None, None, testdb=test_db)
+    candyland_methods.register_team(keep_id, 'Keepers', 111, 222, 0, testdb=test_db)
+    drop_id = candyland_methods.create_event('drop', None, None, testdb=test_db)
+    candyland_methods.register_team(drop_id, 'Droppers', 333, 444, 0, testdb=test_db)
+
+    candyland_methods.clear_event_teams(drop_id, testdb=test_db)
+
+    assert [t['name'] for t in candyland_methods.get_teams(keep_id, testdb=test_db)] == ['Keepers']
+    assert candyland_methods.get_teams(drop_id, testdb=test_db) == []
+    assert candyland_methods.get_event('keep', testdb=test_db)['status'] == 'setup'
 
 
 def test_get_all_tile_threads_returns_only_event_threads(test_db, setup_candyland_tables):
