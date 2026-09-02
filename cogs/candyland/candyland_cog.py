@@ -484,17 +484,14 @@ class Candyland(commands.Cog):
         await ctx.followup.send('Your bounty is in - see the board above.',
                                 ephemeral=True)
 
-        # Disadvantage/Advantage only bias the next roll and may still be
-        # followed by a move, so they keep the current thread and get a plain
-        # note. The other four replace the tile task and each get a fresh,
-        # labelled thread; that thread's starter message already announces the
-        # bounty, so only fall back to a note if it failed to open.
-        cer = None
-        if bounty_key not in candyland_bounty.SOFT_LOCK_KEYS:
-            cer = await candyland_ceremony.run_bounty_thread_ceremony(
-                self.bot, database, team, team_role, self.mainbingo_channel_id,
-                bounty_key, result['to_sequence'], thread_row,
-            )
+        # Every bounty archives the team's current thread and opens a fresh,
+        # labelled one so the next roll's proof scan starts clean. That thread's
+        # starter message already announces the bounty, so only fall back to a
+        # plain note if it failed to open.
+        cer = await candyland_ceremony.run_bounty_thread_ceremony(
+            self.bot, database, team, team_role, self.mainbingo_channel_id,
+            bounty_key, result['to_sequence'], thread_row,
+        )
 
         if cer is None or not cer['open_thread_id']:
             await candyland_ceremony.post_bounty_note(
