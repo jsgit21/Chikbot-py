@@ -34,13 +34,12 @@ DEFAULT_TEAMS = 2
 _REASON = 'candyland test harness'
 
 # Hard denylist: real event objects teardown must never delete, even if a name
-# or prefix somehow matched. From the pivot plan / brief.
+# or prefix somehow matched. Real team roles are chikbot-created per event now
+# (their ids are not known here), so they are covered by the name-prefix fence,
+# not this list. run_teardown also adds MODERATOR_ROLE / EVENT_PLANNER_ROLE.
 PROTECTED_IDS = frozenset({
     1543654850271912037,   # #mainbingo
     1535394096129118278,   # Fall 2026 Bingo category
-    1543659894136242368,   # real team role
-    1543659947802234910,   # real team role
-    1543659991129657364,   # real team role
 })
 
 
