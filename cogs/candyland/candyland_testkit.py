@@ -58,7 +58,7 @@ def _summarize(pairs):
     return '; '.join(parts) if parts else 'none'
 
 
-async def run_setup(cog, ctx, teams_raw, extra_member):
+async def run_setup(cog, ctx, teams_raw, tester2):
     moderator_role = ctx.guild.get_role(cog.moderator_role_id)
     event_planner_role = ctx.guild.get_role(cog.event_planner_role_id)
     if moderator_role is None or event_planner_role is None:
@@ -108,7 +108,7 @@ async def run_setup(cog, ctx, teams_raw, extra_member):
         else:
             forums_built.append((name, 'adopted'))
 
-        for member in (ctx.author, extra_member):
+        for member in (ctx.author, tester2):
             if member is not None and role not in member.roles:
                 await member.add_roles(role, reason=_REASON)
 

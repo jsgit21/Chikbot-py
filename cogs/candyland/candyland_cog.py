@@ -712,8 +712,8 @@ class Candyland(commands.Cog):
                        description='TEST HARNESS: stand up a disposable Candyland test environment')
     async def test_setup(self, ctx,
                          teams: discord.Option(int, 'Test teams (1-4)', default=candyland_testkit.DEFAULT_TEAMS),
-                         member: discord.Option(discord.Member, 'Also give the test roles to this member', required=False, default=None)):
-        await candyland_testkit.run_setup(self, ctx, teams, member)
+                         tester2: discord.Option(discord.Member, 'Optional: also give the test roles to a second account', required=False, default=None)):
+        await candyland_testkit.run_setup(self, ctx, teams, tester2)
 
     @commands.check(is_moderator)
     @candyland.command(name='test-teardown',
