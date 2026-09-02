@@ -265,6 +265,51 @@ async def run_bounty_thread_ceremony(bot, database, team, team_role,
     return result
 
 
+async def run_move_thread_ceremony(bot, database, team, team_role,
+                                   mainbingo_channel_id, to_sequence,
+                                   old_thread_row):
+    # Mod /candyland manual-move: open a fresh thread on the target tile, make it
+    # the team's single open row, archive the one they were on. old_thread_row is
+    # None when the team was already desynced with no open thread - then there is
+    # nothing to archive. move_open_thread_to_tile (not swap_open_thread) so a
+    # backward move onto a tile the team already has a row for repoints it
+    # instead of colliding on the unique key.
+    result = {'steps': {}, 'new_thread_id': None, 'failures': []}
+
+    try:
+        new_thread = await open_tile_thread(
+            bot, team['forum_channel_id'], mainbingo_channel_id, team_role,
+            to_sequence,
+        )
+        result['new_thread_id'] = new_thread.id
+        result['steps']['create_thread'] = 'ok'
+    except Exception as e:
+        result['steps']['create_thread'] = 'FAIL'
+        result['failures'].append(f'create_thread: {e!r}')
+        return result
+
+    try:
+        await asyncio.to_thread(
+            database.move_open_thread_to_tile, team['id'], to_sequence,
+            new_thread.id,
+        )
+        result['steps']['db_move_thread'] = 'ok'
+    except Exception as e:
+        result['steps']['db_move_thread'] = 'FAIL'
+        result['failures'].append(f'db_move_thread: {e!r}')
+        return result
+
+    if old_thread_row is not None:
+        try:
+            await lock_and_archive(bot, old_thread_row['thread_id'])
+            result['steps']['archive_old_thread'] = 'ok'
+        except Exception as e:
+            result['steps']['archive_old_thread'] = 'FAIL'
+            result['failures'].append(f'archive_old_thread: {e!r}')
+
+    return result
+
+
 async def alert_mods(bot, mod_channel_id, team, die, from_sequence, to_sequence,
                      result):
     channel = await resolve_channel(bot, mod_channel_id)

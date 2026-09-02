@@ -300,6 +300,97 @@ class Candyland(commands.Cog):
             lines.append('Could not delete: ' + '; '.join(failed))
         lines.append('Re-run `/candyland team-add` for each team to set up again.')
         await ctx.respond('\n'.join(lines))
+
+    @commands.check(is_moderator)
+    @candyland.command(name='manual-move',
+                       description='Mod tool: move a team to a specific tile (surgical fix)')
+    async def manual_move(self, ctx,
+                          team: discord.Option(discord.Role, "The team's role"),
+                          tile: discord.Option(int, 'Target tile number')):
+        if ctx.channel.id != self.moderator_channel_id:
+            await ctx.respond(
+                f'`/candyland manual-move` only works in <#{self.moderator_channel_id}>.',
+                ephemeral=True,
+            )
+            return
+
+        await ctx.defer(ephemeral=True)
+
+        event = await asyncio.to_thread(database.get_active_event)
+        if event is None:
+            await ctx.followup.send('No live event.', ephemeral=True)
+            return
+
+        team_row = await asyncio.to_thread(
+            database.get_team_by_role, event['id'], team.id
+        )
+        if team_row is None:
+            await ctx.followup.send(
+                f'{team.mention} is not a team in the live event.',
+                ephemeral=True,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            return
+
+        upper = (candyland_board.BOARD1_SIZE
+                 if event['board2_revealed_at'] is None
+                 else candyland_board.TOTAL_TILES)
+        if not 1 <= tile <= upper:
+            await ctx.followup.send(
+                f'Tile must be between 1 and {upper}.', ephemeral=True
+            )
+            return
+
+        state = await asyncio.to_thread(database.get_team_state, team_row['id'])
+        from_sequence = state['current_sequence']
+        thread_row = await asyncio.to_thread(database.get_open_thread, team_row['id'])
+        team_role = ctx.guild.get_role(team_row['role_id'])
+        if team_role is None:
+            await ctx.followup.send(
+                "That team's Discord role is missing; fix the team setup first.",
+                ephemeral=True,
+            )
+            return
+
+        moved_row = False
+        if tile != from_sequence:
+            result = await asyncio.to_thread(
+                database.move_team, team_row['id'], tile, ctx.author.id,
+                state['last_movement_id'],
+            )
+            if not result['ok']:
+                await ctx.followup.send(
+                    'The board just changed - check it and try again.',
+                    ephemeral=True,
+                )
+                return
+            moved_row = True
+
+        cer = await candyland_ceremony.run_move_thread_ceremony(
+            self.bot, database, team_row, team_role, self.mainbingo_channel_id,
+            tile, thread_row,
+        )
+
+        await asyncio.to_thread(
+            database.write_audit, ctx.author.id, 'manual-move',
+            {'event_slug': event['slug'], 'team_id': team_row['id'],
+             'from': from_sequence, 'to': tile, 'row_written': moved_row,
+             'ceremony': cer['steps'], 'ceremony_failures': cer['failures']},
+        )
+
+        if cer['failures']:
+            await candyland_ceremony.alert_mods(
+                self.bot, self.moderator_channel_id, team_row, 0, from_sequence,
+                tile, cer,
+            )
+
+        if moved_row:
+            msg = f'Moved **{team_row["name"]}** from tile {from_sequence} to {tile}.'
+        else:
+            msg = f'Reopened the tile {tile} thread for **{team_row["name"]}**.'
+        if cer['failures']:
+            msg += ' Ceremony fell short - see the mod channel.'
+        await ctx.followup.send(msg, ephemeral=True)
     # === END MODERATOR COMMANDS ===
 
     # === PLAYER COMMANDS (any team-role holder) ===
