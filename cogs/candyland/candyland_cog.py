@@ -28,6 +28,7 @@ from . import candyland_board
 from . import candyland_bounty
 from . import candyland_ceremony
 from . import candyland_roll
+from . import candyland_testkit
 from . import candyland_db_methods as database
 from cogs.roll_dice import dice_art
 
@@ -609,6 +610,26 @@ class Candyland(commands.Cog):
 
         await ctx.followup.send('\n'.join(lines), ephemeral=True)
     # === END PLAYER COMMANDS ===
+
+    # === TEST HARNESS - remove after the event ===
+    # Disposable test-environment commands. Every line of logic is in
+    # candyland_testkit.py. To remove post-event: delete that file, delete this
+    # block, delete the mod-guide test section.
+
+    @commands.check(is_moderator)
+    @candyland.command(name='test-setup',
+                       description='TEST HARNESS: stand up a disposable Candyland test environment')
+    async def test_setup(self, ctx,
+                         teams: discord.Option(int, 'Test teams (1-4)', default=candyland_testkit.DEFAULT_TEAMS),
+                         member: discord.Option(discord.Member, 'Also give the test roles to this member', required=False, default=None)):
+        await candyland_testkit.run_setup(self, ctx, teams, member)
+
+    @commands.check(is_moderator)
+    @candyland.command(name='test-teardown',
+                       description='TEST HARNESS: destroy the Candyland test environment')
+    async def test_teardown(self, ctx):
+        await candyland_testkit.run_teardown(self, ctx)
+    # === END TEST HARNESS ===
 
     async def cog_command_error(self, ctx, error):
         if isinstance(error, discord.errors.CheckFailure):
