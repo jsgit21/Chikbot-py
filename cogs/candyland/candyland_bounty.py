@@ -27,20 +27,21 @@ BOUNTY_MECHANIC = {
     'ADVANCE': 'Team moves forward 1 tile now.',
     'DISADVANTAGE': 'Next roll is the lower of two 1d4+1.',
     'ADVANTAGE': 'Next roll is the higher of two 1d4+1.',
-    'DOUBLE_DOWN': ('Next roll is two 1d4+1 summed (4-10). The team owes this '
-                    'tile a second time (honor system).'),
+    'DOUBLE_DOWN': ('Next roll is two 1d4+1 summed (4-10). '
+                    'First complete this tile a second time - '
+                    'full Major and Minor, fresh proof.'),
     'SWAP': 'This tile is cleared. The team rolls normally next.',
 }
 
-# Disadvantage and Advantage are the two bounties that only bias the team's
-# next roll without committing its position or replacing the tile task. They
-# behave differently on two axes:
-#   - Sequencing: a team may not chain bounties across one tile, but a +/-1
-#     move (Retreat/Advance) may still follow one of these two. Every other
-#     bounty is a hard stop until the team completes the tile and rolls.
-#   - Threads: these two keep the current tile thread; the other four each get
-#     a fresh, labelled thread so their alternative task's proof starts clean.
-# Both enforced in the cog (sequencing off get_last_bounty_since_roll).
+# All six bounties open a fresh, labelled thread on the destination tile and
+# archive the one the team was on, so the alternative task's proof always
+# starts from an empty thread.
+#
+# Disadvantage and Advantage are still special on one axis: sequencing. A team
+# may not chain bounties across one tile, but a +/-1 move (Retreat/Advance) may
+# still follow one of these two. Every other bounty is a hard stop until the
+# team completes the tile and rolls. Enforced in the cog off
+# get_last_bounty_since_roll.
 SOFT_LOCK_KEYS = {'DISADVANTAGE', 'ADVANTAGE'}
 MOVE_KEYS = {'RETREAT', 'ADVANCE'}
 

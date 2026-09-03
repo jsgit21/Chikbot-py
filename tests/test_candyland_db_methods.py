@@ -451,3 +451,67 @@ def test_replay_folds_adjustment_from_bounty(test_db, setup_candyland_tables):
     state = candyland_methods.refold_team_state(team_id, testdb=test_db)
 
     assert state['current_sequence'] == 4
+
+
+def test_move_team_forward_folds(test_db, setup_candyland_tables):
+    event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
+    team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
+    candyland_methods.advance_team_by_roll(team_id, 4, 1, 5, 900, 42, None, testdb=test_db)
+    state = candyland_methods.get_team_state(team_id, testdb=test_db)
+
+    result = candyland_methods.move_team(
+        team_id, 20, 777, state['last_movement_id'], testdb=test_db
+    )
+
+    assert result['ok']
+    assert result['from_sequence'] == 5 and result['to_sequence'] == 20
+    state = candyland_methods.get_team_state(team_id, testdb=test_db)
+    assert state['current_sequence'] == 20
+    assert state['last_movement_id'] == result['movement_id']
+
+    cursor = test_db.cursor(pymysql.cursors.DictCursor)
+    cursor.execute(
+        f"select * from {TEST_DATABASE}.movement where team_id = %s and kind = 'adjustment'",
+        (team_id,),
+    )
+    rows = cursor.fetchall()
+    assert len(rows) == 1
+    assert rows[0]['from_sequence'] == 5 and rows[0]['to_sequence'] == 20
+    assert rows[0]['roll_total'] is None
+
+
+def test_move_team_backward_folds(test_db, setup_candyland_tables):
+    event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
+    team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
+    candyland_methods.advance_team_by_roll(team_id, 4, 1, 5, 900, 42, None, testdb=test_db)
+    state = candyland_methods.get_team_state(team_id, testdb=test_db)
+
+    candyland_methods.move_team(team_id, 2, 777, state['last_movement_id'], testdb=test_db)
+
+    state = candyland_methods.get_team_state(team_id, testdb=test_db)
+    assert state['current_sequence'] == 2
+
+
+def test_move_team_preserves_pending_modifier(test_db, setup_candyland_tables):
+    event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
+    team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
+    candyland_methods.advance_team_by_roll(team_id, 4, 1, 5, 900, 42, None, testdb=test_db)
+    state = candyland_methods.get_team_state(team_id, testdb=test_db)
+    candyland_methods.claim_bounty(team_id, 'ADVANTAGE', 42, state['last_movement_id'], testdb=test_db)
+
+    state = candyland_methods.get_team_state(team_id, testdb=test_db)
+    candyland_methods.move_team(team_id, 15, 777, state['last_movement_id'], testdb=test_db)
+
+    assert candyland_methods.get_pending_modifier(team_id, testdb=test_db) == 'ADVANTAGE'
+
+
+def test_move_team_rejects_stale_guard(test_db, setup_candyland_tables):
+    event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
+    team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
+    candyland_methods.advance_team_by_roll(team_id, 4, 1, 5, 900, 42, None, testdb=test_db)
+
+    stale = candyland_methods.move_team(team_id, 10, 777, None, testdb=test_db)
+    assert stale == {'ok': False, 'reason': 'conflict'}
+
+    state = candyland_methods.get_team_state(team_id, testdb=test_db)
+    assert state['current_sequence'] == 5

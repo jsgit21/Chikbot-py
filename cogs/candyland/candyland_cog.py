@@ -28,6 +28,7 @@ from . import candyland_board
 from . import candyland_bounty
 from . import candyland_ceremony
 from . import candyland_roll
+from . import candyland_testkit
 from . import candyland_db_methods as database
 from cogs.roll_dice import dice_art
 
@@ -70,6 +71,8 @@ class Candyland(commands.Cog):
         self.candyland_category_id = int(os.getenv('CANDYLAND_CATEGORY'))
         self.event_planner_role_id = int(os.getenv('EVENT_PLANNER_ROLE'))
         self.moderator_role_id = int(os.getenv('MODERATOR_ROLE'))
+
+    # === MODERATOR COMMANDS (Moderator role; some are testing-only) ===
 
     @commands.check(is_moderator)
     @candyland.command(name='setup-event', description='Create a candyland event')
@@ -160,32 +163,6 @@ class Candyland(commands.Cog):
         )
 
     @commands.check(is_moderator)
-    @candyland.command(name='status', description='Show board state for a candyland event')
-    async def status(self, ctx,
-                     event_slug: discord.Option(str, 'Event slug')):
-        event = await asyncio.to_thread(database.get_event, event_slug)
-        if event is None:
-            await ctx.respond(f'No candyland event with slug **{event_slug}**.')
-            return
-
-        rows = await asyncio.to_thread(database.get_all_state, event['id'])
-        await asyncio.to_thread(
-            database.write_audit, ctx.author.id, 'status', {'event_slug': event_slug}
-        )
-
-        if not rows:
-            await ctx.respond(f'**{event_slug}** has no teams yet.')
-            return
-
-        lines = [f"__Board state for **{event_slug}**__"]
-        for row in rows:
-            lines.append(
-                f'- **{row["name"]}**: tile {row["current_sequence"]} '
-                f'(updated {row["updated_at"]})'
-            )
-        await ctx.respond('\n'.join(lines))
-
-    @commands.check(is_moderator)
     @candyland.command(name='start', description="Open every team's tile-1 thread and start the event")
     async def start(self, ctx,
                     event_slug: discord.Option(str, 'Event slug')):
@@ -241,6 +218,182 @@ class Candyland(commands.Cog):
         if failed:
             lines.append('Failed: ' + '; '.join(failed))
         await ctx.respond('\n'.join(lines))
+
+    @commands.check(is_moderator)
+    @candyland.command(name='status', description='Show board state for a candyland event')
+    async def status(self, ctx,
+                     event_slug: discord.Option(str, 'Event slug')):
+        event = await asyncio.to_thread(database.get_event, event_slug)
+        if event is None:
+            await ctx.respond(f'No candyland event with slug **{event_slug}**.')
+            return
+
+        rows = await asyncio.to_thread(database.get_all_state, event['id'])
+        await asyncio.to_thread(
+            database.write_audit, ctx.author.id, 'status', {'event_slug': event_slug}
+        )
+
+        if not rows:
+            await ctx.respond(f'**{event_slug}** has no teams yet.')
+            return
+
+        lines = [f"__Board state for **{event_slug}**__"]
+        for row in rows:
+            lines.append(
+                f'- **{row["name"]}**: tile {row["current_sequence"]} '
+                f'(updated {row["updated_at"]})'
+            )
+        await ctx.respond('\n'.join(lines))
+
+    @commands.check(is_moderator)
+    @candyland.command(name='clear', description='TESTING ONLY: wipe an event and reset it to setup')
+    async def clear(self, ctx,
+                    event_slug: discord.Option(str, 'Event slug')):
+        event = await asyncio.to_thread(database.get_event, event_slug)
+        if event is None:
+            await ctx.respond(f'No candyland event with slug **{event_slug}**.')
+            return
+
+        await ctx.defer()
+
+        teams = await asyncio.to_thread(database.get_teams, event['id'])
+        thread_rows = await asyncio.to_thread(database.get_all_tile_threads, event['id'])
+
+        threads = await candyland_ceremony.delete_tile_threads(
+            self.bot, [r['thread_id'] for r in thread_rows]
+        )
+        forums = await candyland_ceremony.delete_team_forums(
+            self.bot, [t['forum_channel_id'] for t in teams]
+        )
+        roles = await candyland_ceremony.delete_team_roles(
+            ctx.guild, [t['role_id'] for t in teams],
+            {self.moderator_role_id, self.event_planner_role_id},
+        )
+
+        await asyncio.to_thread(database.clear_event_teams, event['id'])
+        await asyncio.to_thread(
+            database.write_audit, ctx.author.id, 'clear',
+            {'event_slug': event_slug, 'event_id': event['id'],
+             'threads_deleted': len(threads['deleted']),
+             'threads_missing': len(threads['missing']),
+             'threads_failed': threads['failed'],
+             'forums_deleted': len(forums['deleted']),
+             'forums_missing': len(forums['missing']),
+             'forums_failed': forums['failed'],
+             'roles_deleted': len(roles['deleted']),
+             'roles_missing': len(roles['missing']),
+             'roles_failed': roles['failed']},
+        )
+
+        lines = [
+            f'Cleared **{event_slug}**: team rows dropped (movement, tile-thread '
+            f'records, team state and bounty use cascade), status back to `setup`.',
+            f'Discord: {len(threads["deleted"])} tile thread(s), '
+            f'{len(forums["deleted"])} forum(s), {len(roles["deleted"])} role(s) deleted; '
+            f'{len(threads["missing"])}/{len(forums["missing"])}/{len(roles["missing"])} '
+            f'thread/forum/role already gone.',
+            'The `Fall 2026 Bingo` category and the Moderator / Event Planner / chikbot '
+            'roles are untouched.',
+        ]
+        failed = threads['failed'] + forums['failed'] + roles['failed']
+        if failed:
+            lines.append('Could not delete: ' + '; '.join(failed))
+        lines.append('Re-run `/candyland team-add` for each team to set up again.')
+        await ctx.respond('\n'.join(lines))
+
+    @commands.check(is_moderator)
+    @candyland.command(name='manual-move',
+                       description='Mod tool: move a team to a specific tile (surgical fix)')
+    async def manual_move(self, ctx,
+                          team: discord.Option(discord.Role, "The team's role"),
+                          tile: discord.Option(int, 'Target tile number')):
+        if ctx.channel.id != self.moderator_channel_id:
+            await ctx.respond(
+                f'`/candyland manual-move` only works in <#{self.moderator_channel_id}>.',
+                ephemeral=True,
+            )
+            return
+
+        await ctx.defer(ephemeral=True)
+
+        event = await asyncio.to_thread(database.get_active_event)
+        if event is None:
+            await ctx.followup.send('No live event.', ephemeral=True)
+            return
+
+        team_row = await asyncio.to_thread(
+            database.get_team_by_role, event['id'], team.id
+        )
+        if team_row is None:
+            await ctx.followup.send(
+                f'{team.mention} is not a team in the live event.',
+                ephemeral=True,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            return
+
+        upper = (candyland_board.BOARD1_SIZE
+                 if event['board2_revealed_at'] is None
+                 else candyland_board.TOTAL_TILES)
+        if not 1 <= tile <= upper:
+            await ctx.followup.send(
+                f'Tile must be between 1 and {upper}.', ephemeral=True
+            )
+            return
+
+        state = await asyncio.to_thread(database.get_team_state, team_row['id'])
+        from_sequence = state['current_sequence']
+        thread_row = await asyncio.to_thread(database.get_open_thread, team_row['id'])
+        team_role = ctx.guild.get_role(team_row['role_id'])
+        if team_role is None:
+            await ctx.followup.send(
+                "That team's Discord role is missing; fix the team setup first.",
+                ephemeral=True,
+            )
+            return
+
+        moved_row = False
+        if tile != from_sequence:
+            result = await asyncio.to_thread(
+                database.move_team, team_row['id'], tile, ctx.author.id,
+                state['last_movement_id'],
+            )
+            if not result['ok']:
+                await ctx.followup.send(
+                    'The board just changed - check it and try again.',
+                    ephemeral=True,
+                )
+                return
+            moved_row = True
+
+        cer = await candyland_ceremony.run_move_thread_ceremony(
+            self.bot, database, team_row, team_role, self.mainbingo_channel_id,
+            tile, thread_row,
+        )
+
+        await asyncio.to_thread(
+            database.write_audit, ctx.author.id, 'manual-move',
+            {'event_slug': event['slug'], 'team_id': team_row['id'],
+             'from': from_sequence, 'to': tile, 'row_written': moved_row,
+             'ceremony': cer['steps'], 'ceremony_failures': cer['failures']},
+        )
+
+        if cer['failures']:
+            await candyland_ceremony.alert_mods(
+                self.bot, self.moderator_channel_id, team_row, 0, from_sequence,
+                tile, cer,
+            )
+
+        if moved_row:
+            msg = f'Moved **{team_row["name"]}** from tile {from_sequence} to {tile}.'
+        else:
+            msg = f'Reopened the tile {tile} thread for **{team_row["name"]}**.'
+        if cer['failures']:
+            msg += ' Ceremony fell short - see the mod channel.'
+        await ctx.followup.send(msg, ephemeral=True)
+    # === END MODERATOR COMMANDS ===
+
+    # === PLAYER COMMANDS (any team-role holder) ===
 
     @candyland.command(name='roll', description="Roll your team's move in Casual GMers Land")
     async def roll(self, ctx):
@@ -484,17 +637,14 @@ class Candyland(commands.Cog):
         await ctx.followup.send('Your bounty is in - see the board above.',
                                 ephemeral=True)
 
-        # Disadvantage/Advantage only bias the next roll and may still be
-        # followed by a move, so they keep the current thread and get a plain
-        # note. The other four replace the tile task and each get a fresh,
-        # labelled thread; that thread's starter message already announces the
-        # bounty, so only fall back to a note if it failed to open.
-        cer = None
-        if bounty_key not in candyland_bounty.SOFT_LOCK_KEYS:
-            cer = await candyland_ceremony.run_bounty_thread_ceremony(
-                self.bot, database, team, team_role, self.mainbingo_channel_id,
-                bounty_key, result['to_sequence'], thread_row,
-            )
+        # Every bounty archives the team's current thread and opens a fresh,
+        # labelled one so the next roll's proof scan starts clean. That thread's
+        # starter message already announces the bounty, so only fall back to a
+        # plain note if it failed to open.
+        cer = await candyland_ceremony.run_bounty_thread_ceremony(
+            self.bot, database, team, team_role, self.mainbingo_channel_id,
+            bounty_key, result['to_sequence'], thread_row,
+        )
 
         if cer is None or not cer['open_thread_id']:
             await candyland_ceremony.post_bounty_note(
@@ -550,62 +700,27 @@ class Candyland(commands.Cog):
             lines.append(f'~~{name}~~' if key in used_keys else f'**{name}**')
 
         await ctx.followup.send('\n'.join(lines), ephemeral=True)
+    # === END PLAYER COMMANDS ===
+
+    # === TEST HARNESS - remove after the event ===
+    # Disposable test-environment commands. Every line of logic is in
+    # candyland_testkit.py. To remove post-event: delete that file, delete this
+    # block, delete the mod-guide test section.
 
     @commands.check(is_moderator)
-    @candyland.command(name='clear', description='TESTING ONLY: wipe an event and reset it to setup')
-    async def clear(self, ctx,
-                    event_slug: discord.Option(str, 'Event slug')):
-        event = await asyncio.to_thread(database.get_event, event_slug)
-        if event is None:
-            await ctx.respond(f'No candyland event with slug **{event_slug}**.')
-            return
+    @candyland.command(name='test-setup',
+                       description='TEST HARNESS: stand up a disposable Candyland test environment')
+    async def test_setup(self, ctx,
+                         teams: discord.Option(int, 'Test teams (1-4)', default=candyland_testkit.DEFAULT_TEAMS),
+                         tester2: discord.Option(discord.Member, 'Optional: also give the test roles to a second account', required=False, default=None)):
+        await candyland_testkit.run_setup(self, ctx, teams, tester2)
 
-        await ctx.defer()
-
-        teams = await asyncio.to_thread(database.get_teams, event['id'])
-        thread_rows = await asyncio.to_thread(database.get_all_tile_threads, event['id'])
-
-        threads = await candyland_ceremony.delete_tile_threads(
-            self.bot, [r['thread_id'] for r in thread_rows]
-        )
-        forums = await candyland_ceremony.delete_team_forums(
-            self.bot, [t['forum_channel_id'] for t in teams]
-        )
-        roles = await candyland_ceremony.delete_team_roles(
-            ctx.guild, [t['role_id'] for t in teams],
-            {self.moderator_role_id, self.event_planner_role_id},
-        )
-
-        await asyncio.to_thread(database.clear_event_teams, event['id'])
-        await asyncio.to_thread(
-            database.write_audit, ctx.author.id, 'clear',
-            {'event_slug': event_slug, 'event_id': event['id'],
-             'threads_deleted': len(threads['deleted']),
-             'threads_missing': len(threads['missing']),
-             'threads_failed': threads['failed'],
-             'forums_deleted': len(forums['deleted']),
-             'forums_missing': len(forums['missing']),
-             'forums_failed': forums['failed'],
-             'roles_deleted': len(roles['deleted']),
-             'roles_missing': len(roles['missing']),
-             'roles_failed': roles['failed']},
-        )
-
-        lines = [
-            f'Cleared **{event_slug}**: team rows dropped (movement, tile-thread '
-            f'records, team state and bounty use cascade), status back to `setup`.',
-            f'Discord: {len(threads["deleted"])} tile thread(s), '
-            f'{len(forums["deleted"])} forum(s), {len(roles["deleted"])} role(s) deleted; '
-            f'{len(threads["missing"])}/{len(forums["missing"])}/{len(roles["missing"])} '
-            f'thread/forum/role already gone.',
-            'The `Fall 2026 Bingo` category and the Moderator / Event Planner / chikbot '
-            'roles are untouched.',
-        ]
-        failed = threads['failed'] + forums['failed'] + roles['failed']
-        if failed:
-            lines.append('Could not delete: ' + '; '.join(failed))
-        lines.append('Re-run `/candyland team-add` for each team to set up again.')
-        await ctx.respond('\n'.join(lines))
+    @commands.check(is_moderator)
+    @candyland.command(name='test-teardown',
+                       description='TEST HARNESS: destroy the Candyland test environment')
+    async def test_teardown(self, ctx):
+        await candyland_testkit.run_teardown(self, ctx)
+    # === END TEST HARNESS ===
 
     async def cog_command_error(self, ctx, error):
         if isinstance(error, discord.errors.CheckFailure):

@@ -28,7 +28,7 @@ def get_event(slug, testdb=None):
     cursor = db.cursor(pymysql.cursors.DictCursor)
 
     query = """
-        select id, slug, status, starts_at, ends_at, created_at
+        select id, slug, status, board2_revealed_at, starts_at, ends_at, created_at
           from event
          where slug = %s
     """
@@ -41,7 +41,7 @@ def get_active_event(testdb=None):
     cursor = db.cursor(pymysql.cursors.DictCursor)
 
     query = """
-        select id, slug, status, starts_at, ends_at, created_at
+        select id, slug, status, board2_revealed_at, starts_at, ends_at, created_at
           from event
          where status = 'live'
          order by id desc
@@ -331,6 +331,54 @@ def claim_bounty(team_id, bounty_key, invoked_by_user_id, expected_movement_id,
             'from_sequence': from_sequence,
             'to_sequence': to_sequence,
             'moved': moved,
+            'movement_id': movement_id,
+        }
+    except Exception:
+        db.rollback()
+        raise
+
+
+def move_team(team_id, to_sequence, invoked_by_user_id, expected_movement_id,
+              testdb=None):
+    # Mod reposition. One transaction mirroring claim_bounty: SELECT ... FOR
+    # UPDATE the team_state row, verify the guard, append an append-only
+    # 'adjustment' movement row, refold. No update, no delete. The caller has
+    # already checked to_sequence != current_sequence (an equal move is
+    # ceremony-only, no row).
+    db = testdb if testdb else connection.create_connection()
+    db.begin()
+    try:
+        cursor = db.cursor()
+        cursor.execute(
+            """
+            select last_movement_id, current_sequence
+              from team_state
+             where team_id = %s
+             for update
+            """,
+            (team_id,),
+        )
+        locked = cursor.fetchone()
+        if locked is None:
+            db.rollback()
+            return {'ok': False, 'reason': 'conflict'}
+
+        locked_movement_id, from_sequence = locked
+        if locked_movement_id != expected_movement_id:
+            db.rollback()
+            return {'ok': False, 'reason': 'conflict'}
+
+        movement_id = record_movement(
+            team_id, 'adjustment', None, from_sequence, to_sequence,
+            None, invoked_by_user_id, f'mod move by {invoked_by_user_id}',
+            testdb=db,
+        )
+        refold_team_state(team_id, testdb=db)
+        db.commit()
+        return {
+            'ok': True,
+            'from_sequence': from_sequence,
+            'to_sequence': to_sequence,
             'movement_id': movement_id,
         }
     except Exception:
