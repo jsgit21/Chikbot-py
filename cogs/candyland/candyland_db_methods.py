@@ -386,6 +386,131 @@ def move_team(team_id, to_sequence, invoked_by_user_id, expected_movement_id,
         raise
 
 
+# --- Board 2 reveal + transition (/candyland doomsday, Phase C wave 2) ---
+
+def team_has_crossed_to_board2(team_id, testdb=None):
+    db = testdb if testdb else connection.create_connection()
+    cursor = db.cursor()
+
+    query = """
+        select 1
+          from movement
+         where team_id = %s
+           and kind = 'board_transition'
+         limit 1
+    """
+    cursor.execute(query, (team_id,))
+    return cursor.fetchone() is not None
+
+
+def set_board2_revealed(event_id, testdb=None):
+    # /candyland doomsday: flip the reveal once. The `board2_revealed_at is null`
+    # predicate makes a second call a no-op; rowcount tells the caller whether
+    # this call is the one that revealed Board 2.
+    db = testdb if testdb else connection.create_connection()
+    cursor = db.cursor()
+
+    query = """
+        update event
+           set board2_revealed_at = now()
+         where id = %s
+           and board2_revealed_at is null
+    """
+    cursor.execute(query, (event_id,))
+    return cursor.rowcount > 0
+
+
+def mark_board2_leader(team_id, invoked_by_user_id, expected_movement_id,
+                       testdb=None):
+    # /candyland doomsday marks the named leader as having crossed to Board 2
+    # without moving it: a board_transition row BOARD1_SIZE -> BOARD1_SIZE.
+    # refold leaves the team on tile 42; team_has_crossed_to_board2 then reports
+    # true, so the leader's next roll takes the full-track path, not the
+    # trailing teleport. Written before set_board2_revealed so a racing roll
+    # cannot teleport the leader in the gap (see the plan's deviation note).
+    db = testdb if testdb else connection.create_connection()
+    db.begin()
+    try:
+        cursor = db.cursor()
+        cursor.execute(
+            """
+            select last_movement_id, current_sequence
+              from team_state
+             where team_id = %s
+             for update
+            """,
+            (team_id,),
+        )
+        locked = cursor.fetchone()
+        if locked is None:
+            db.rollback()
+            return None
+
+        locked_movement_id, locked_sequence = locked
+        if (locked_movement_id != expected_movement_id
+                or locked_sequence != candyland_board.BOARD1_SIZE):
+            db.rollback()
+            return None
+
+        if team_has_crossed_to_board2(team_id, testdb=db):
+            db.rollback()
+            return None
+
+        movement_id = record_movement(
+            team_id, 'board_transition', None,
+            candyland_board.BOARD1_SIZE, candyland_board.BOARD1_SIZE,
+            None, invoked_by_user_id, 'board 2 revealed - leader marker',
+            testdb=db,
+        )
+        refold_team_state(team_id, testdb=db)
+        db.commit()
+        return movement_id
+    except Exception:
+        db.rollback()
+        raise
+
+
+def teleport_team_to_board2(team_id, invoked_by_user_id, expected_movement_id,
+                            testdb=None):
+    # A trailing team's first /candyland roll after the reveal: no dice, straight
+    # to the first Board 2 tile. board_transition row from wherever it stood to
+    # BOARD1_SIZE + 1. Same lock discipline as advance_team_by_roll.
+    db = testdb if testdb else connection.create_connection()
+    db.begin()
+    try:
+        cursor = db.cursor()
+        cursor.execute(
+            """
+            select last_movement_id, current_sequence
+              from team_state
+             where team_id = %s
+             for update
+            """,
+            (team_id,),
+        )
+        locked = cursor.fetchone()
+        if locked is None:
+            db.rollback()
+            return None
+
+        locked_movement_id, from_sequence = locked
+        if locked_movement_id != expected_movement_id:
+            db.rollback()
+            return None
+
+        movement_id = record_movement(
+            team_id, 'board_transition', None, from_sequence,
+            candyland_board.BOARD1_SIZE + 1, None, invoked_by_user_id,
+            'board 2 transition - trailing teleport', testdb=db,
+        )
+        refold_team_state(team_id, testdb=db)
+        db.commit()
+        return movement_id
+    except Exception:
+        db.rollback()
+        raise
+
+
 def get_pending_modifier(team_id, testdb=None):
     db = testdb if testdb else connection.create_connection()
     cursor = db.cursor()

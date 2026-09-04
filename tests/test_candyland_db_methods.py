@@ -515,3 +515,132 @@ def test_move_team_rejects_stale_guard(test_db, setup_candyland_tables):
 
     state = candyland_methods.get_team_state(team_id, testdb=test_db)
     assert state['current_sequence'] == 5
+
+
+def _seed_team_to(test_db, team_id, tile):
+    candyland_methods.record_movement(
+        team_id, 'adjustment', None, 1, tile, None, None, 'seed', testdb=test_db
+    )
+    candyland_methods.refold_team_state(team_id, testdb=test_db)
+    return candyland_methods.get_team_state(team_id, testdb=test_db)
+
+
+def test_set_board2_revealed_flips_once(test_db, setup_candyland_tables):
+    event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
+
+    assert candyland_methods.set_board2_revealed(event_id, testdb=test_db) is True
+
+    first = candyland_methods.get_event('e', testdb=test_db)['board2_revealed_at']
+    assert first is not None
+
+    assert candyland_methods.set_board2_revealed(event_id, testdb=test_db) is False
+    assert candyland_methods.get_event('e', testdb=test_db)['board2_revealed_at'] == first
+
+
+def test_mark_board2_leader_marks_without_moving(test_db, setup_candyland_tables):
+    event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
+    team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
+    other_id = candyland_methods.register_team(event_id, 'Blues', 333, 444, 1, testdb=test_db)
+    state = _seed_team_to(test_db, team_id, candyland_board.BOARD1_SIZE)
+
+    movement_id = candyland_methods.mark_board2_leader(
+        team_id, 7, state['last_movement_id'], testdb=test_db
+    )
+    assert movement_id is not None
+
+    cursor = test_db.cursor(pymysql.cursors.DictCursor)
+    cursor.execute(f'select * from {TEST_DATABASE}.movement where id = %s', (movement_id,))
+    row = cursor.fetchone()
+    assert row['kind'] == 'board_transition'
+    assert row['from_sequence'] == row['to_sequence'] == candyland_board.BOARD1_SIZE
+    assert row['roll_total'] is None
+
+    state = candyland_methods.get_team_state(team_id, testdb=test_db)
+    assert state['current_sequence'] == candyland_board.BOARD1_SIZE
+    assert candyland_methods.team_has_crossed_to_board2(team_id, testdb=test_db) is True
+    assert candyland_methods.team_has_crossed_to_board2(other_id, testdb=test_db) is False
+
+
+def test_mark_board2_leader_second_call_is_noop(test_db, setup_candyland_tables):
+    event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
+    team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
+    state = _seed_team_to(test_db, team_id, candyland_board.BOARD1_SIZE)
+
+    assert candyland_methods.mark_board2_leader(
+        team_id, 7, state['last_movement_id'], testdb=test_db
+    ) is not None
+
+    state = candyland_methods.get_team_state(team_id, testdb=test_db)
+    assert candyland_methods.mark_board2_leader(
+        team_id, 7, state['last_movement_id'], testdb=test_db
+    ) is None
+
+    cursor = test_db.cursor(pymysql.cursors.DictCursor)
+    cursor.execute(
+        f"select count(*) as n from {TEST_DATABASE}.movement "
+        f"where team_id = %s and kind = 'board_transition'", (team_id,)
+    )
+    assert cursor.fetchone()['n'] == 1
+
+
+def test_mark_board2_leader_rejects_stale_guard(test_db, setup_candyland_tables):
+    event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
+    team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
+    _seed_team_to(test_db, team_id, candyland_board.BOARD1_SIZE)
+
+    assert candyland_methods.mark_board2_leader(team_id, 7, None, testdb=test_db) is None
+
+    cursor = test_db.cursor(pymysql.cursors.DictCursor)
+    cursor.execute(
+        f"select count(*) as n from {TEST_DATABASE}.movement "
+        f"where team_id = %s and kind = 'board_transition'", (team_id,)
+    )
+    assert cursor.fetchone()['n'] == 0
+
+
+def test_teleport_team_to_board2_from_midboard(test_db, setup_candyland_tables):
+    event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
+    team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
+    state = _seed_team_to(test_db, team_id, 30)
+
+    movement_id = candyland_methods.teleport_team_to_board2(
+        team_id, 7, state['last_movement_id'], testdb=test_db
+    )
+    assert movement_id is not None
+
+    cursor = test_db.cursor(pymysql.cursors.DictCursor)
+    cursor.execute(f'select * from {TEST_DATABASE}.movement where id = %s', (movement_id,))
+    row = cursor.fetchone()
+    assert row['kind'] == 'board_transition'
+    assert row['from_sequence'] == 30
+    assert row['to_sequence'] == candyland_board.BOARD1_SIZE + 1
+
+    state = candyland_methods.get_team_state(team_id, testdb=test_db)
+    assert state['current_sequence'] == candyland_board.BOARD1_SIZE + 1
+    assert candyland_methods.team_has_crossed_to_board2(team_id, testdb=test_db) is True
+
+
+def test_teleport_team_to_board2_rejects_stale_guard(test_db, setup_candyland_tables):
+    event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
+    team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
+    _seed_team_to(test_db, team_id, 30)
+
+    assert candyland_methods.teleport_team_to_board2(team_id, 7, None, testdb=test_db) is None
+
+    cursor = test_db.cursor(pymysql.cursors.DictCursor)
+    cursor.execute(
+        f"select count(*) as n from {TEST_DATABASE}.movement "
+        f"where team_id = %s and kind = 'board_transition'", (team_id,)
+    )
+    assert cursor.fetchone()['n'] == 0
+
+
+def test_replay_folds_through_transition_then_roll():
+    movements = [
+        {'to_sequence': 40},   # roll
+        {'to_sequence': 42},   # roll onto the wall
+        {'to_sequence': 42},   # board_transition leader marker
+        {'to_sequence': 45},   # roll off tile 42
+    ]
+
+    assert candyland_methods._replay(movements) == 45

@@ -310,6 +310,43 @@ async def run_move_thread_ceremony(bot, database, team, team_role,
     return result
 
 
+async def run_reveal_ceremony(bot, mainbingo_channel_id, leader_thread_id,
+                              team_role):
+    # /candyland doomsday: the public reveal line in #mainbingo plus a ping in
+    # the leader's existing tile thread. No thread is opened or archived - the
+    # leader keeps its thread (and its proof image) until it rolls.
+    result = {'steps': {}, 'new_thread_id': None, 'failures': []}
+
+    try:
+        channel = await resolve_channel(bot, mainbingo_channel_id)
+        await channel.send(
+            'Yama has a new contract. The road did not end where you thought '
+            'it did.',
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+        result['steps']['mainbingo_line'] = 'ok'
+    except Exception as e:
+        result['steps']['mainbingo_line'] = 'FAIL'
+        result['failures'].append(f'mainbingo_line: {e!r}')
+
+    if leader_thread_id is None:
+        return result
+
+    try:
+        thread = await resolve_channel(bot, leader_thread_id)
+        await thread.send(
+            f'{team_role.mention} the road did not end where you thought it '
+            f'did. Roll when you are ready.',
+            allowed_mentions=discord.AllowedMentions(roles=[team_role]),
+        )
+        result['steps']['leader_ping'] = 'ok'
+    except Exception as e:
+        result['steps']['leader_ping'] = 'FAIL'
+        result['failures'].append(f'leader_ping: {e!r}')
+
+    return result
+
+
 async def alert_mods(bot, mod_channel_id, team, die, from_sequence, to_sequence,
                      result):
     channel = await resolve_channel(bot, mod_channel_id)
