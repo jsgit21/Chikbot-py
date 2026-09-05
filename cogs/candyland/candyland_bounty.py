@@ -20,19 +20,6 @@ BOUNTY_NAMES = {
     'SWAP': 'Swap',
 }
 
-# One-line mechanical summary for the tile-thread confirmation. Not the
-# authoritative reward text - that is in casual-gmers content.
-BOUNTY_MECHANIC = {
-    'RETREAT': 'Team moves back 1 tile now.',
-    'ADVANCE': 'Team moves forward 1 tile now.',
-    'DISADVANTAGE': 'Next roll is the lower of two 1d4+1.',
-    'ADVANTAGE': 'Next roll is the higher of two 1d4+1.',
-    'DOUBLE_DOWN': ('Next roll is two 1d4+1 summed (4-10). '
-                    'First complete this tile a second time - '
-                    'full Major and Minor, fresh proof.'),
-    'SWAP': 'This tile is cleared. The team rolls normally next.',
-}
-
 # All six bounties open a fresh, labelled thread on the destination tile and
 # archive the one the team was on, so the alternative task's proof always
 # starts from an empty thread.

@@ -47,6 +47,7 @@ create table candyland.team (
   id int unsigned primary key auto_increment,
   event_id int unsigned not null,
   name varchar(64) not null,
+  acronym varchar(16) null,                 -- short tag; render falls back to name when null
   role_id bigint unsigned not null,         -- the Discord role that authorises /candyland roll
   forum_channel_id bigint unsigned not null,-- where this team's per-tile threads are created
   sort_order int not null default 0,
@@ -106,10 +107,20 @@ create table candyland.bounty_use (
   bounty_key varchar(16) not null,          -- RETREAT, ADVANCE, DISADVANTAGE, ADVANTAGE, DOUBLE_DOWN, SWAP
   used_on_sequence int not null,
   movement_id int unsigned,
+  claimed_at datetime null,                 -- null: taken but not completed; this is what "outstanding" means
   created_at timestamp default current_timestamp,
   constraint fk_bounty_team foreign key (team_id)
     references team (id) on delete cascade,
   unique key (team_id, board_number, bounty_key)
+);
+
+create table candyland.bounty (
+  id tinyint unsigned primary key auto_increment,
+  board_number tinyint unsigned not null,
+  bounty_key varchar(16) not null,          -- RETREAT, ADVANCE, DISADVANTAGE, ADVANTAGE, DOUBLE_DOWN, SWAP
+  task varchar(255) not null,               -- phrased to follow "This means that "
+  reward varchar(500) not null,             -- phrased to follow "your team will:"
+  unique key (board_number, bounty_key)
 );
 
 create table candyland.audit (

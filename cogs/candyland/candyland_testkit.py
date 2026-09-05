@@ -144,7 +144,7 @@ async def run_setup(cog, ctx, teams_raw, tester2):
         if await asyncio.to_thread(database.get_any_thread, team['id']) is not None:
             threads_built.append((team['name'], 'adopted'))
             continue
-        thread = await candyland_ceremony.open_tile_thread(
+        thread, _pin_step = await candyland_ceremony.open_tile_thread(
             cog.bot, team['forum_channel_id'], cog.mainbingo_channel_id, role, 1
         )
         await asyncio.to_thread(database.open_tile_thread, team['id'], 1, thread.id)
