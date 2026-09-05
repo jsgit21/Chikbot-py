@@ -43,21 +43,23 @@ class Candyland(commands.Cog):
 
     candyland = discord.SlashCommandGroup('candyland', 'Casual GMers Land event admin')
 
+    # Public (not ephemeral): a team's failed attempt is state its teammates
+    # and mods should be able to see, not just the caller.
     _ROLL_REFUSALS = {
-        candyland_roll.NO_TEAM: 'You are not on a team for this event.',
-        candyland_roll.MULTI_TEAM: 'You hold more than one team role.',
+        candyland_roll.NO_TEAM: '-# ⚠ You are not on a team for this event.',
+        candyland_roll.MULTI_TEAM: '-# ⚠ You hold more than one team role.',
         candyland_roll.OUT_OF_SYNC: (
-            "Your team's tile thread is out of sync with the board; a mod needs "
-            'to repair it.'
+            "-# ⚠ Your team's tile thread is out of sync with the board; a mod "
+            'needs to repair it.'
         ),
     }
 
     _BOUNTY_REFUSALS = {
-        candyland_roll.NO_TEAM: 'You are not on a team for this event.',
-        candyland_roll.MULTI_TEAM: 'You hold more than one team role.',
+        candyland_roll.NO_TEAM: '-# ⚠ You are not on a team for this event.',
+        candyland_roll.MULTI_TEAM: '-# ⚠ You hold more than one team role.',
         candyland_roll.OUT_OF_SYNC: (
-            "Your team's tile thread is out of sync with the board; a mod needs "
-            'to repair it.'
+            "-# ⚠ Your team's tile thread is out of sync with the board; a mod "
+            'needs to repair it.'
         ),
     }
 
@@ -526,7 +528,7 @@ class Candyland(commands.Cog):
         event = await asyncio.to_thread(database.get_active_event)
         if event is None:
             await ctx.followup.send(
-                'No live event - ask a mod to run `/candyland start`.', ephemeral=True
+                '-# ⚠ No live event - ask a mod to run `/candyland start`.'
             )
             return
 
@@ -534,14 +536,14 @@ class Candyland(commands.Cog):
         caller_role_ids = {r.id for r in ctx.author.roles}
         team, refusal = candyland_roll.resolve_caller_team(teams, caller_role_ids)
         if refusal is not None:
-            await ctx.followup.send(self._ROLL_REFUSALS[refusal], ephemeral=True)
+            await ctx.followup.send(self._ROLL_REFUSALS[refusal])
             return
 
         thread_row = await asyncio.to_thread(database.get_open_thread, team['id'])
         if thread_row is None:
             await ctx.followup.send(
-                'No active tile - has the event started? Ask a mod to run `/candyland start`.',
-                ephemeral=True,
+                '-# ⚠ No active tile - has the event started? Ask a mod to run '
+                '`/candyland start`.'
             )
             return
 
@@ -549,10 +551,9 @@ class Candyland(commands.Cog):
         if unclaimed is not None:
             name = candyland_bounty.BOUNTY_NAMES[unclaimed['bounty_key']]
             await ctx.followup.send(
-                f'Your team elected to take the **{name}** bounty instead of this '
+                f'-# ⚠ Your team elected to take the **{name}** bounty instead of this '
                 f'tile. Complete it in <#{thread_row["thread_id"]}>, then run '
-                '`/candyland bounty-claim`.',
-                ephemeral=True,
+                '`/candyland bounty-claim`.'
             )
             return
 
@@ -571,8 +572,8 @@ class Candyland(commands.Cog):
         team_role = ctx.guild.get_role(team['role_id'])
         if team_role is None:
             await ctx.followup.send(
-                "Your team's Discord role is missing; a mod needs to fix the team setup.",
-                ephemeral=True,
+                "-# ⚠ Your team's Discord role is missing; a mod needs to fix the "
+                'team setup.'
             )
             return
         team_label = team['acronym'] or team['name']
@@ -586,7 +587,7 @@ class Candyland(commands.Cog):
             )
             if not has_image:
                 await ctx.followup.send(
-                    f'No proof image in <#{thread_row["thread_id"]}> yet.', ephemeral=True
+                    f'-# ⚠ No proof image in <#{thread_row["thread_id"]}> yet.'
                 )
                 return
 
@@ -623,10 +624,10 @@ class Candyland(commands.Cog):
                 allowed_mentions=discord.AllowedMentions(
                     roles=[r for r in (planner_role, moderator_role) if r]),
             )
-            await ctx.followup.send('Your roll is in - see the board above.', ephemeral=True)
+            await ctx.followup.send('Your roll is in - good luck!', ephemeral=True)
             return
         if blocked is not None:
-            await ctx.followup.send(self._ROLL_REFUSALS[blocked], ephemeral=True)
+            await ctx.followup.send(self._ROLL_REFUSALS[blocked])
             return
 
         modifier = await asyncio.to_thread(
@@ -638,7 +639,7 @@ class Candyland(commands.Cog):
         )
         if not has_image:
             await ctx.followup.send(
-                f'No proof image in <#{thread_row["thread_id"]}> yet.', ephemeral=True
+                f'-# ⚠ No proof image in <#{thread_row["thread_id"]}> yet.'
             )
             return
 
@@ -650,9 +651,8 @@ class Candyland(commands.Cog):
             )
             if movement_id is None:
                 await ctx.followup.send(
-                    'Another roll for your team just landed first - check the '
-                    'board and try again.',
-                    ephemeral=True,
+                    '-# ⚠ Another roll for your team just landed first - check the '
+                    'board and try again.'
                 )
                 return
 
@@ -664,7 +664,7 @@ class Candyland(commands.Cog):
                 allowed_mentions=discord.AllowedMentions(users=False, roles=False),
             )
             await ctx.followup.send(
-                'Your team was pulled forward - see the board above.',
+                'Your team was pulled forward - please see the board.',
                 ephemeral=True,
             )
 
@@ -712,8 +712,8 @@ class Candyland(commands.Cog):
         )
         if movement_id is None:
             await ctx.followup.send(
-                'Another roll for your team just landed first - check the board and try again.',
-                ephemeral=True,
+                '-# ⚠ Another roll for your team just landed first - check the board '
+                'and try again.'
             )
             return
 
@@ -780,8 +780,7 @@ class Candyland(commands.Cog):
         event = await asyncio.to_thread(database.get_active_event)
         if event is None:
             await ctx.followup.send(
-                'No live event - ask a mod to run `/candyland start`.',
-                ephemeral=True,
+                '-# ⚠ No live event - ask a mod to run `/candyland start`.'
             )
             return
 
@@ -789,29 +788,24 @@ class Candyland(commands.Cog):
         caller_role_ids = {r.id for r in ctx.author.roles}
         team, refusal = candyland_roll.resolve_caller_team(teams, caller_role_ids)
         if refusal is not None:
-            await ctx.followup.send(self._BOUNTY_REFUSALS[refusal], ephemeral=True)
+            await ctx.followup.send(self._BOUNTY_REFUSALS[refusal])
             return
 
         thread_row = await asyncio.to_thread(database.get_open_thread, team['id'])
         if thread_row is None:
-            await ctx.followup.send(
-                'No active tile - has the event started?', ephemeral=True,
-            )
+            await ctx.followup.send('-# ⚠ No active tile - has the event started?')
             return
 
         state = await asyncio.to_thread(database.get_team_state, team['id'])
         from_sequence = state['current_sequence']
 
         if thread_row['tile_sequence'] != from_sequence:
-            await ctx.followup.send(
-                self._BOUNTY_REFUSALS[candyland_roll.OUT_OF_SYNC], ephemeral=True,
-            )
+            await ctx.followup.send(self._BOUNTY_REFUSALS[candyland_roll.OUT_OF_SYNC])
             return
 
         if candyland_board.is_board_edge_tile(from_sequence):
             await ctx.followup.send(
-                "Bounties can't be taken on the first or last tile of a board.",
-                ephemeral=True,
+                "-# ⚠ Bounties can't be taken on the first or last tile of a board."
             )
             return
 
@@ -822,17 +816,15 @@ class Candyland(commands.Cog):
             last_name = candyland_bounty.BOUNTY_NAMES[last_bounty]
             if last_bounty not in candyland_bounty.SOFT_LOCK_KEYS:
                 await ctx.followup.send(
-                    f"Your team's last bounty was **{last_name}**. Complete "
-                    'this tile and roll before taking another bounty.',
-                    ephemeral=True,
+                    f"-# ⚠ Your team's last bounty was **{last_name}**. Complete "
+                    'this tile and roll before taking another bounty.'
                 )
                 return
             if bounty_key not in candyland_bounty.MOVE_KEYS:
                 await ctx.followup.send(
-                    f'Your team already took the **{last_name}** bounty since '
+                    f'-# ⚠ Your team already took the **{last_name}** bounty since '
                     'its last roll. Only Retreat or Advance can follow it, '
-                    'otherwise complete this tile and roll.',
-                    ephemeral=True,
+                    'otherwise complete this tile and roll.'
                 )
                 return
 
@@ -840,17 +832,16 @@ class Candyland(commands.Cog):
         if unclaimed is not None:
             name = candyland_bounty.BOUNTY_NAMES[unclaimed['bounty_key']]
             await ctx.followup.send(
-                f'Your team already has the **{name}** bounty outstanding. '
-                'Complete it and run `/candyland bounty-claim` first.',
-                ephemeral=True,
+                f'-# ⚠ Your team already has the **{name}** bounty outstanding. '
+                'Complete it and run `/candyland bounty-claim` first.'
             )
             return
 
         team_role = ctx.guild.get_role(team['role_id'])
         if team_role is None:
             await ctx.followup.send(
-                "Your team's Discord role is missing; a mod needs to fix the "
-                'team setup.', ephemeral=True,
+                "-# ⚠ Your team's Discord role is missing; a mod needs to fix the "
+                'team setup.'
             )
             return
 
@@ -862,14 +853,11 @@ class Candyland(commands.Cog):
             if result['reason'] == 'already_used':
                 name = candyland_bounty.BOUNTY_NAMES[bounty_key]
                 await ctx.followup.send(
-                    f'Your team has already used the **{name}** bounty on this '
-                    'board.', ephemeral=True,
+                    f'-# ⚠ Your team has already used the **{name}** bounty on this '
+                    'board.'
                 )
             else:  # 'conflict'
-                await ctx.followup.send(
-                    'The board just changed - check it and try again.',
-                    ephemeral=True,
-                )
+                await ctx.followup.send('-# ⚠ The board just changed - check it and try again.')
             return
 
         # --- commit point passed: the bounty counts from here ---
@@ -929,16 +917,14 @@ class Candyland(commands.Cog):
 
         event = await asyncio.to_thread(database.get_active_event)
         if event is None:
-            await ctx.respond(
-                'No live event - ask a mod to run `/candyland start`.', ephemeral=True,
-            )
+            await ctx.respond('-# ⚠ No live event - ask a mod to run `/candyland start`.')
             return
 
         teams = await asyncio.to_thread(database.get_teams, event['id'])
         caller_role_ids = {r.id for r in ctx.author.roles}
         team, refusal = candyland_roll.resolve_caller_team(teams, caller_role_ids)
         if refusal is not None:
-            await ctx.respond(self._BOUNTY_REFUSALS[refusal], ephemeral=True)
+            await ctx.respond(self._BOUNTY_REFUSALS[refusal])
             return
 
         state = await asyncio.to_thread(database.get_team_state, team['id'])
@@ -974,16 +960,14 @@ class Candyland(commands.Cog):
 
         event = await asyncio.to_thread(database.get_active_event)
         if event is None:
-            await ctx.respond(
-                'No live event - ask a mod to run `/candyland start`.', ephemeral=True,
-            )
+            await ctx.respond('-# ⚠ No live event - ask a mod to run `/candyland start`.')
             return
 
         teams = await asyncio.to_thread(database.get_teams, event['id'])
         caller_role_ids = {r.id for r in ctx.author.roles}
         team, refusal = candyland_roll.resolve_caller_team(teams, caller_role_ids)
         if refusal is not None:
-            await ctx.respond(self._BOUNTY_REFUSALS[refusal], ephemeral=True)
+            await ctx.respond(self._BOUNTY_REFUSALS[refusal])
             return
 
         state = await asyncio.to_thread(database.get_team_state, team['id'])
@@ -1012,7 +996,7 @@ class Candyland(commands.Cog):
         event = await asyncio.to_thread(database.get_active_event)
         if event is None:
             await ctx.followup.send(
-                'No live event - ask a mod to run `/candyland start`.', ephemeral=True,
+                '-# ⚠ No live event - ask a mod to run `/candyland start`.'
             )
             return
 
@@ -1020,20 +1004,20 @@ class Candyland(commands.Cog):
         caller_role_ids = {r.id for r in ctx.author.roles}
         team, refusal = candyland_roll.resolve_caller_team(teams, caller_role_ids)
         if refusal is not None:
-            await ctx.followup.send(self._BOUNTY_REFUSALS[refusal], ephemeral=True)
+            await ctx.followup.send(self._BOUNTY_REFUSALS[refusal])
             return
 
         unclaimed = await asyncio.to_thread(database.get_unclaimed_bounty, team['id'])
         if unclaimed is None:
             await ctx.followup.send(
-                'Your team has no bounty outstanding. Complete this tile and run '
-                '`/candyland roll`.', ephemeral=True,
+                '-# ⚠ Your team has no bounty outstanding. Complete this tile and run '
+                '`/candyland roll`.'
             )
             return
 
         thread_row = await asyncio.to_thread(database.get_open_thread, team['id'])
         if thread_row is None:
-            await ctx.followup.send('No active tile - has the event started?', ephemeral=True)
+            await ctx.followup.send('-# ⚠ No active tile - has the event started?')
             return
 
         has_image = await candyland_ceremony.thread_has_proof_image(
@@ -1041,7 +1025,7 @@ class Candyland(commands.Cog):
         )
         if not has_image:
             await ctx.followup.send(
-                f'No proof image in <#{thread_row["thread_id"]}> yet.', ephemeral=True,
+                f'-# ⚠ No proof image in <#{thread_row["thread_id"]}> yet.'
             )
             return
 
@@ -1049,8 +1033,8 @@ class Candyland(commands.Cog):
         team_role = ctx.guild.get_role(team['role_id'])
         if team_role is None:
             await ctx.followup.send(
-                "Your team's Discord role is missing; a mod needs to fix the team setup.",
-                ephemeral=True,
+                "-# ⚠ Your team's Discord role is missing; a mod needs to fix the "
+                'team setup.'
             )
             return
 
@@ -1059,9 +1043,7 @@ class Candyland(commands.Cog):
             state['last_movement_id'],
         )
         if not result['ok']:
-            await ctx.followup.send(
-                'The board just changed - check it and try again.', ephemeral=True,
-            )
+            await ctx.followup.send('-# ⚠ The board just changed - check it and try again.')
             return
 
         # --- commit point passed: the claim counts from here ---
