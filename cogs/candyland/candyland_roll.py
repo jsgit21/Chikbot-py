@@ -10,6 +10,7 @@ import random
 # blocking_condition() return values
 OUT_OF_SYNC = 'out_of_sync'
 FINAL_TILE = 'final_tile'
+BOUNTY_PENDING = 'bounty_pending'
 
 # resolve_caller_team() return values
 NO_TEAM = 'no_team'

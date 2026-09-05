@@ -63,21 +63,24 @@ def set_event_status(slug, status, testdb=None):
     cursor.execute(query, (status, slug))
 
 
-def register_team(event_id, name, role_id, forum_channel_id, sort_order, testdb=None):
+def register_team(event_id, name, role_id, forum_channel_id, sort_order,
+                  acronym=None, testdb=None):
     db = testdb if testdb else connection.create_connection()
     cursor = db.cursor()
 
     query = """
         insert into team
-            (event_id, name, role_id, forum_channel_id, sort_order)
-        values (%s, %s, %s, %s, %s)
+            (event_id, name, acronym, role_id, forum_channel_id, sort_order)
+        values (%s, %s, %s, %s, %s, %s)
         on duplicate key update
             name = values(name),
+            acronym = values(acronym),
             forum_channel_id = values(forum_channel_id)
     """
     values = (
         event_id,
         name,
+        acronym,
         role_id,
         forum_channel_id,
         sort_order,
@@ -107,7 +110,7 @@ def get_teams(event_id, testdb=None):
     cursor = db.cursor(pymysql.cursors.DictCursor)
 
     query = """
-        select id, event_id, name, role_id, forum_channel_id, sort_order, created_at
+        select id, event_id, name, acronym, role_id, forum_channel_id, sort_order, created_at
           from team
          where event_id = %s
          order by sort_order
@@ -121,7 +124,7 @@ def get_team_by_role(event_id, role_id, testdb=None):
     cursor = db.cursor(pymysql.cursors.DictCursor)
 
     query = """
-        select id, event_id, name, role_id, forum_channel_id, sort_order, created_at
+        select id, event_id, name, acronym, role_id, forum_channel_id, sort_order, created_at
           from team
          where event_id = %s
            and role_id = %s
@@ -165,6 +168,22 @@ def get_all_state(event_id, testdb=None):
          order by t.sort_order
     """
     cursor.execute(query, (event_id,))
+    return cursor.fetchall()
+
+
+def get_all_events(testdb=None):
+    db = testdb if testdb else connection.create_connection()
+    cursor = db.cursor(pymysql.cursors.DictCursor)
+
+    query = """
+        select e.id, e.slug, e.status, e.board2_revealed_at, e.created_at,
+               count(t.id) as team_count
+          from event e
+          left join team t on t.event_id = e.id
+         group by e.id
+         order by e.id
+    """
+    cursor.execute(query)
     return cursor.fetchall()
 
 
@@ -277,8 +296,12 @@ def advance_team_by_roll(team_id, roll_total, from_sequence,
         raise
 
 
-def claim_bounty(team_id, bounty_key, invoked_by_user_id, expected_movement_id,
-                 testdb=None):
+def take_bounty(team_id, bounty_key, invoked_by_user_id, expected_movement_id,
+                testdb=None):
+    # Taking a bounty no longer moves the team - it only records the choice
+    # (a from_sequence == to_sequence marker row, mirroring mark_board2_leader)
+    # and leaves bounty_use.claimed_at null. complete_bounty applies the
+    # reward once the bounty task is actually done.
     db = testdb if testdb else connection.create_connection()
     db.begin()
     try:
@@ -303,14 +326,9 @@ def claim_bounty(team_id, bounty_key, invoked_by_user_id, expected_movement_id,
             return {'ok': False, 'reason': 'conflict'}
 
         board_number = candyland_board.board_of(from_sequence)
-        to_sequence = candyland_bounty.destination(
-            bounty_key, from_sequence,
-            candyland_board.board_final_tile(from_sequence),
-        )
-        moved = to_sequence != from_sequence
 
         movement_id = record_movement(
-            team_id, 'adjustment', None, from_sequence, to_sequence,
+            team_id, 'adjustment', None, from_sequence, from_sequence,
             None, invoked_by_user_id, f'bounty:{bounty_key}', testdb=db,
         )
         try:
@@ -329,6 +347,83 @@ def claim_bounty(team_id, bounty_key, invoked_by_user_id, expected_movement_id,
             'bounty_key': bounty_key,
             'board_number': board_number,
             'from_sequence': from_sequence,
+            'movement_id': movement_id,
+        }
+    except Exception:
+        db.rollback()
+        raise
+
+
+def complete_bounty(team_id, bounty_use_id, invoked_by_user_id, expected_movement_id,
+                    testdb=None):
+    # /candyland bounty-claim: apply the bounty's reward. Same lock-and-fold
+    # shape as move_team. A movement row is written only when the bounty
+    # actually moves the team (Retreat/Advance) - Advantage/Disadvantage/
+    # Double Down/Swap need no row, mirroring manual-move's moved_row guard.
+    db = testdb if testdb else connection.create_connection()
+    db.begin()
+    try:
+        cursor = db.cursor()
+        cursor.execute(
+            """
+            select last_movement_id, current_sequence
+              from team_state
+             where team_id = %s
+             for update
+            """,
+            (team_id,),
+        )
+        locked = cursor.fetchone()
+        if locked is None:
+            db.rollback()
+            return {'ok': False, 'reason': 'conflict'}
+
+        locked_movement_id, from_sequence = locked
+        if locked_movement_id != expected_movement_id:
+            db.rollback()
+            return {'ok': False, 'reason': 'conflict'}
+
+        cursor.execute(
+            """
+            select bounty_key
+              from bounty_use
+             where id = %s
+               and team_id = %s
+               and claimed_at is null
+            """,
+            (bounty_use_id, team_id),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            db.rollback()
+            return {'ok': False, 'reason': 'conflict'}
+        bounty_key = row[0]
+
+        to_sequence = candyland_bounty.destination(
+            bounty_key, from_sequence,
+            candyland_board.board_final_tile(from_sequence),
+        )
+        moved = to_sequence != from_sequence
+
+        movement_id = None
+        if moved:
+            movement_id = record_movement(
+                team_id, 'adjustment', None, from_sequence, to_sequence,
+                None, invoked_by_user_id, f'bounty-claim:{bounty_key}', testdb=db,
+            )
+
+        cursor.execute(
+            "update bounty_use set claimed_at = now() where id = %s",
+            (bounty_use_id,),
+        )
+
+        if moved:
+            refold_team_state(team_id, testdb=db)
+
+        db.commit()
+        return {
+            'ok': True,
+            'from_sequence': from_sequence,
             'to_sequence': to_sequence,
             'moved': moved,
             'movement_id': movement_id,
@@ -340,7 +435,7 @@ def claim_bounty(team_id, bounty_key, invoked_by_user_id, expected_movement_id,
 
 def move_team(team_id, to_sequence, invoked_by_user_id, expected_movement_id,
               testdb=None):
-    # Mod reposition. One transaction mirroring claim_bounty: SELECT ... FOR
+    # Mod reposition. One transaction mirroring take_bounty: SELECT ... FOR
     # UPDATE the team_state row, verify the guard, append an append-only
     # 'adjustment' movement row, refold. No update, no delete. The caller has
     # already checked to_sequence != current_sequence (an equal move is
@@ -520,6 +615,7 @@ def get_pending_modifier(team_id, testdb=None):
           from bounty_use bu
          where bu.team_id = %s
            and bu.bounty_key in ('DISADVANTAGE', 'ADVANTAGE', 'DOUBLE_DOWN')
+           and bu.claimed_at is not null
            and bu.movement_id is not null
            and bu.movement_id > coalesce(
                  (select max(m.id) from movement m
@@ -530,6 +626,41 @@ def get_pending_modifier(team_id, testdb=None):
     cursor.execute(query, (team_id, team_id))
     row = cursor.fetchone()
     return row[0] if row else None
+
+
+def get_unclaimed_bounty(team_id, testdb=None):
+    db = testdb if testdb else connection.create_connection()
+    cursor = db.cursor(pymysql.cursors.DictCursor)
+
+    query = """
+        select id, team_id, board_number, bounty_key, used_on_sequence,
+               movement_id, claimed_at, created_at
+          from bounty_use
+         where team_id = %s
+           and claimed_at is null
+         order by id desc
+         limit 1
+    """
+    cursor.execute(query, (team_id,))
+    return cursor.fetchone()
+
+
+def clear_outstanding_bounty(team_id, testdb=None):
+    # /candyland manual-move: a mod repositioning a team with an unclaimed
+    # bounty would otherwise strand it (rolls blocked forever, no bounty
+    # thread to claim from). Marks it claimed without moving anyone; the
+    # manual-move itself is the movement.
+    db = testdb if testdb else connection.create_connection()
+    cursor = db.cursor()
+
+    query = """
+        update bounty_use
+           set claimed_at = now()
+         where team_id = %s
+           and claimed_at is null
+    """
+    cursor.execute(query, (team_id,))
+    return cursor.rowcount > 0
 
 
 def get_last_bounty_since_roll(team_id, testdb=None):
@@ -740,6 +871,52 @@ def get_bounty_uses(team_id, board_number, testdb=None):
     """
     cursor.execute(query, (team_id, board_number))
     return cursor.fetchall()
+
+
+def get_bounty_texts(board_number, testdb=None):
+    db = testdb if testdb else connection.create_connection()
+    cursor = db.cursor(pymysql.cursors.DictCursor)
+
+    query = """
+        select id, board_number, bounty_key, task, reward
+          from bounty
+         where board_number = %s
+    """
+    cursor.execute(query, (board_number,))
+    return cursor.fetchall()
+
+
+def get_bounty_text(board_number, bounty_key, testdb=None):
+    db = testdb if testdb else connection.create_connection()
+    cursor = db.cursor(pymysql.cursors.DictCursor)
+
+    query = """
+        select id, board_number, bounty_key, task, reward
+          from bounty
+         where board_number = %s
+           and bounty_key = %s
+    """
+    cursor.execute(query, (board_number, bounty_key))
+    return cursor.fetchone()
+
+
+def has_final_tile_audit(team_id, to_sequence, testdb=None):
+    # Dedup for the two final-tile milestone announcements (tile 42 doomsday
+    # cue, tile 65 win claim): each must fire once per team, independently at
+    # each of the two absolute tile numbers.
+    db = testdb if testdb else connection.create_connection()
+    cursor = db.cursor()
+
+    query = """
+        select 1
+          from audit
+         where action = 'final_tile'
+           and JSON_EXTRACT(payload, '$.team_id') = %s
+           and JSON_EXTRACT(payload, '$.to_sequence') = %s
+         limit 1
+    """
+    cursor.execute(query, (team_id, to_sequence))
+    return cursor.fetchone() is not None
 
 
 def write_audit(actor_user_id, action, payload_dict, testdb=None):
