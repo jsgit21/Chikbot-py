@@ -19,6 +19,17 @@ TABLES = [
     'event',
 ]
 
+# `create table ... like` copies columns and indexes but not foreign keys, so
+# the cascades have to be rebuilt or the test schema quietly loses the
+# referential behaviour prod depends on.
+FOREIGN_KEYS = [
+    ('team', 'fk_team_event', 'event_id', 'event'),
+    ('tile_thread', 'fk_thread_team', 'team_id', 'team'),
+    ('movement', 'fk_movement_team', 'team_id', 'team'),
+    ('team_state', 'fk_state_team', 'team_id', 'team'),
+    ('bounty_use', 'fk_bounty_team', 'team_id', 'team'),
+]
+
 
 @pytest.fixture(scope='module')
 def test_db():
@@ -35,6 +46,12 @@ def setup_candyland_tables(test_db):
         cursor.execute(f'drop table if exists {TEST_DATABASE}.{table}')
     for table in reversed(TABLES):
         cursor.execute(f'create table {TEST_DATABASE}.{table} like {SOURCE_DATABASE}.{table}')
+    for table, name, column, parent in FOREIGN_KEYS:
+        cursor.execute(
+            f'alter table {TEST_DATABASE}.{table} add constraint {name} '
+            f'foreign key ({column}) references {TEST_DATABASE}.{parent} (id) '
+            f'on delete cascade'
+        )
 
 
 def test_create_and_get_event(test_db, setup_candyland_tables):
@@ -232,7 +249,7 @@ def test_clear_event_teams_drops_teams_and_cascades(test_db, setup_candyland_tab
     candyland_methods.clear_event_teams(event_id, testdb=test_db)
 
     assert candyland_methods.get_event('e', testdb=test_db)['status'] == 'setup'
-    assert candyland_methods.get_teams(event_id, testdb=test_db) == []
+    assert len(candyland_methods.get_teams(event_id, testdb=test_db)) == 0
 
     cursor = test_db.cursor(pymysql.cursors.DictCursor)
     for table in ('movement', 'tile_thread', 'team_state'):
@@ -252,7 +269,7 @@ def test_clear_event_teams_leaves_other_events_intact(test_db, setup_candyland_t
     candyland_methods.clear_event_teams(drop_id, testdb=test_db)
 
     assert [t['name'] for t in candyland_methods.get_teams(keep_id, testdb=test_db)] == ['Keepers']
-    assert candyland_methods.get_teams(drop_id, testdb=test_db) == []
+    assert len(candyland_methods.get_teams(drop_id, testdb=test_db)) == 0
     assert candyland_methods.get_event('keep', testdb=test_db)['status'] == 'setup'
 
 
