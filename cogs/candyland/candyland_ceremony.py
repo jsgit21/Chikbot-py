@@ -15,7 +15,7 @@ _BOUNTY_THREAD_BODY = (
     'Post your proof here, then run `/candyland bounty-claim` in <#{channel}>.\n{role}'
 )
 _ARCHIVE_REASON = 'candyland: tile proven, team advanced'
-_CLEAR_REASON = 'candyland: /candyland clear teardown'
+_CLEAR_REASON = 'candyland: /candyland delete teardown'
 
 
 def build_team_forum_overwrites(guild, team_role, moderator_role, event_planner_role):
