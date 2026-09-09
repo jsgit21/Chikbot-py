@@ -13,11 +13,13 @@ def header(team_label, subtext):
 
 def roll_announcement(team_mention, team_label, author_mention, from_sequence,
                       die, dice_art, new_thread_id=None, modifier_name=None,
-                      final=False, extra_die=False, clamped_at=None):
-    # extra_die and clamped_at are the doomsday catch-up's two display notes: an
-    # extra 1d4+1 folded into this roll, and (when the roll clamped) the tile the
-    # team pulled level with. Both compose into the ordinary roll message; a
-    # catch-up roll has no announcement of its own.
+                      final=False, extra_die=False, clamped_at=None,
+                      blocked_by=None):
+    # extra_die, clamped_at and blocked_by are the doomsday catch-up's display
+    # notes: an extra 1d4+1 folded into this roll, and (when the roll clamped
+    # against the team ahead) the tile it stopped on plus that team's label.
+    # They compose into the ordinary roll message; a catch-up roll has no
+    # announcement of its own.
     if modifier_name and extra_die:
         mod_tag = f' _(with {modifier_name} and a bonus die)_'
     elif extra_die:
@@ -36,7 +38,15 @@ def roll_announcement(team_mention, team_label, author_mention, from_sequence,
         lines.append('-# 🏁 This is the **final tile**.')
     else:
         if clamped_at is not None:
-            lines.append(f'-# 🏁 Pulled level with the team ahead at tile {clamped_at}.')
+            if blocked_by:
+                lines.append(
+                    f'-# 🏁 The road ahead is blocked, it looks like team '
+                    f'{blocked_by} is standing in your way at tile {clamped_at}!'
+                )
+            else:
+                lines.append(
+                    f'-# 🏁 Pulled level with the team ahead at tile {clamped_at}.'
+                )
         if new_thread_id is not None:
             lines.append('')
             lines.append(f"Your team's next tile is ➡️ <#{new_thread_id}>")

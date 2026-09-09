@@ -40,15 +40,24 @@ def test_roll_announcement_extra_die_composes_with_modifier():
     assert with_mod.count('_(with') == 1
 
 
-def test_roll_announcement_clamped_line_names_the_tile():
+def test_roll_announcement_clamped_line_names_the_blocking_team():
     result = candyland_format.roll_announcement(
-        '@Reds', 'RED', '@Nick', 12, 8, 'ART', new_thread_id=900, clamped_at=20,
+        '@Reds', 'RED', '@Nick', 12, 8, 'ART', new_thread_id=900,
+        clamped_at=20, blocked_by='BLU',
     )
 
-    assert 'tile 20' in result
+    assert 'team BLU is standing in your way at tile 20' in result
     assert 'Board' not in result
     assert 'teleport' not in result.lower()
     assert "Your team's next tile is ➡️ <#900>" in result
+
+
+def test_roll_announcement_clamped_line_without_a_blocker_label():
+    result = candyland_format.roll_announcement(
+        '@Reds', 'RED', '@Nick', 12, 8, 'ART', clamped_at=20,
+    )
+
+    assert 'Pulled level with the team ahead at tile 20' in result
 
 
 def test_roll_announcement_final_tile_has_no_next_tile_line():

@@ -595,12 +595,14 @@ class Candyland(commands.Cog):
         # tile any team ahead stands on. Pre-reveal there is no ceiling and no
         # extra die.
         ceiling = None
+        blocker_team_id = None
         if revealed:
-            ahead = [row['current_sequence']
+            ahead = [(row['current_sequence'], row['team_id'])
                      for row in await asyncio.to_thread(database.get_all_state, event['id'])
                      if row['team_id'] != team['id']
                      and row['current_sequence'] > from_sequence]
-            ceiling = min(ahead) if ahead else None
+            if ahead:
+                ceiling, blocker_team_id = min(ahead)
         extra_die = revealed and ceiling is not None and not await asyncio.to_thread(
             database.team_has_spent_catchup, team['id']
         )
@@ -684,6 +686,8 @@ class Candyland(commands.Cog):
             ceiling=ceiling if extra_die else None, extra_die=extra_die,
         )
         clamped_at = to_sequence if from_sequence + die > to_sequence else None
+        blocker = next((t for t in teams if t['id'] == blocker_team_id), None)
+        blocked_by = (blocker['acronym'] or blocker['name']) if blocker else None
 
         writer = database.catchup_roll_team if extra_die else database.advance_team_by_roll
         movement_id = await asyncio.to_thread(
@@ -707,7 +711,7 @@ class Candyland(commands.Cog):
             candyland_format.roll_announcement(
                 team_role.mention, team_label, ctx.author.mention, from_sequence,
                 die, art, modifier_name=modifier_name, final=final,
-                extra_die=extra_die, clamped_at=clamped_at,
+                extra_die=extra_die, clamped_at=clamped_at, blocked_by=blocked_by,
             ),
             allowed_mentions=discord.AllowedMentions(users=False, roles=False),
         )
@@ -725,7 +729,7 @@ class Candyland(commands.Cog):
                         team_role.mention, team_label, ctx.author.mention,
                         from_sequence, die, art, new_thread_id=result['new_thread_id'],
                         modifier_name=modifier_name, final=final,
-                        extra_die=extra_die, clamped_at=clamped_at,
+                        extra_die=extra_die, clamped_at=clamped_at, blocked_by=blocked_by,
                     ),
                     allowed_mentions=discord.AllowedMentions(users=False, roles=False),
                 )
