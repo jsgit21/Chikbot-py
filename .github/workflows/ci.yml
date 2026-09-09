@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - run: pip install -r requirements.txt
+
+      # Explicit paths, not a bare pytest: the DB-backed test files error at
+      # collection without a database, and they get their own service container
+      # separately. `python -m pytest` rather than `pytest` because there is no
+      # conftest.py or pytest config, so only the -m form puts the repo root on
+      # sys.path for `from cogs.candyland import ...`.
+      - name: Candyland pure-logic tests
+        run: python -m pytest tests/test_candyland_roll.py
