@@ -52,6 +52,12 @@ def setup_candyland_tables(test_db):
             f'foreign key ({column}) references {TEST_DATABASE}.{parent} (id) '
             f'on delete cascade'
         )
+    # bounty is reference text, not per-test state, and `create table ... like`
+    # copies columns but no rows. Without this the task and reward copy reads
+    # back empty and the seed has to be reapplied by hand after every run.
+    cursor.execute(
+        f'insert into {TEST_DATABASE}.bounty select * from {SOURCE_DATABASE}.bounty'
+    )
 
 
 def test_create_and_get_event(test_db, setup_candyland_tables):
