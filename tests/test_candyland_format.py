@@ -26,6 +26,31 @@ def test_roll_announcement_modifier_tag():
     assert '🎲 @Nick has rolled a.... _(with Advantage)_' in result
 
 
+def test_roll_announcement_extra_die_composes_with_modifier():
+    plain = candyland_format.roll_announcement(
+        '@Reds', 'RED', '@Nick', 3, 6, 'ART', extra_die=True,
+    )
+    assert 'bonus die' in plain
+
+    with_mod = candyland_format.roll_announcement(
+        '@Reds', 'RED', '@Nick', 3, 6, 'ART', modifier_name='Advantage', extra_die=True,
+    )
+    assert 'Advantage' in with_mod
+    assert 'bonus die' in with_mod
+    assert with_mod.count('_(with') == 1
+
+
+def test_roll_announcement_clamped_line_names_the_tile():
+    result = candyland_format.roll_announcement(
+        '@Reds', 'RED', '@Nick', 12, 8, 'ART', new_thread_id=900, clamped_at=20,
+    )
+
+    assert 'tile 20' in result
+    assert 'Board' not in result
+    assert 'teleport' not in result.lower()
+    assert "Your team's next tile is ➡️ <#900>" in result
+
+
 def test_roll_announcement_final_tile_has_no_next_tile_line():
     result = candyland_format.roll_announcement(
         '@Reds', 'RED', '@Nick', 40, 5, 'ART', new_thread_id=900, final=True,

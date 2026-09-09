@@ -36,11 +36,21 @@ def blocking_condition(thread_tile_sequence, from_sequence, board_size):
     return None
 
 
-def roll_move(from_sequence, board_size, modifier=None):
+def roll_move(from_sequence, board_size, modifier=None, ceiling=None,
+              extra_die=False):
     """Roll 1d4+1 (or a bounty-modified roll) and clamp to the final tile.
 
     modifier: None -> single 1d4+1; 'DISADVANTAGE' -> lower of two;
     'ADVANTAGE' -> higher of two; 'DOUBLE_DOWN' -> the two summed (4-10).
+
+    extra_die: the doomsday catch-up. When true one more 1d4+1 is added on top of
+    whatever the modifier produced. It stacks with any modifier rather than
+    replacing it, so an Advantage catch-up is max(d(), d()) + d().
+
+    ceiling: an optional upper tile the destination cannot pass, clamped together
+    with the board end. The catch-up roll passes the lowest tile occupied by a
+    team ahead so a caught-up team lands level with it, never past it. None means
+    only the board end clamps.
     """
     def d():
         return random.randint(1, 4) + 1
@@ -53,4 +63,7 @@ def roll_move(from_sequence, board_size, modifier=None):
         die = d() + d()
     else:
         die = d()
-    return die, min(from_sequence + die, board_size)
+    if extra_die:
+        die += d()
+    limit = board_size if ceiling is None else min(board_size, ceiling)
+    return die, min(from_sequence + die, limit)

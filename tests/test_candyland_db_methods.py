@@ -720,41 +720,101 @@ def test_mark_board2_leader_rejects_stale_guard(test_db, setup_candyland_tables)
     assert cursor.fetchone()['n'] == 0
 
 
-def test_teleport_team_to_board2_from_midboard(test_db, setup_candyland_tables):
+def test_catchup_roll_team_from_midboard_writes_row_and_folds(test_db, setup_candyland_tables):
     event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
     team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
-    state = _seed_team_to(test_db, team_id, 30)
+    state = _seed_team_to(test_db, team_id, 12)
 
-    movement_id = candyland_methods.teleport_team_to_board2(
-        team_id, 7, state['last_movement_id'], testdb=test_db
+    movement_id = candyland_methods.catchup_roll_team(
+        team_id, 8, 12, 20, 900, 7, state['last_movement_id'], testdb=test_db
     )
     assert movement_id is not None
 
     cursor = test_db.cursor(pymysql.cursors.DictCursor)
     cursor.execute(f'select * from {TEST_DATABASE}.movement where id = %s', (movement_id,))
     row = cursor.fetchone()
-    assert row['kind'] == 'board_transition'
-    assert row['from_sequence'] == 30
-    assert row['to_sequence'] == candyland_board.BOARD1_SIZE + 1
+    assert row['kind'] == 'catchup_roll'
+    assert row['from_sequence'] == 12
+    assert row['to_sequence'] == 20
+    assert row['roll_total'] == 8
 
     state = candyland_methods.get_team_state(team_id, testdb=test_db)
-    assert state['current_sequence'] == candyland_board.BOARD1_SIZE + 1
-    assert candyland_methods.team_has_crossed_to_board2(team_id, testdb=test_db) is True
+    assert state['current_sequence'] == 20
+    assert state['last_movement_id'] == movement_id
 
 
-def test_teleport_team_to_board2_rejects_stale_guard(test_db, setup_candyland_tables):
+def test_catchup_roll_team_rejects_stale_guard(test_db, setup_candyland_tables):
     event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
     team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
-    _seed_team_to(test_db, team_id, 30)
+    _seed_team_to(test_db, team_id, 12)
 
-    assert candyland_methods.teleport_team_to_board2(team_id, 7, None, testdb=test_db) is None
+    assert candyland_methods.catchup_roll_team(
+        team_id, 8, 12, 20, 900, 7, None, testdb=test_db
+    ) is None
 
     cursor = test_db.cursor(pymysql.cursors.DictCursor)
     cursor.execute(
         f"select count(*) as n from {TEST_DATABASE}.movement "
-        f"where team_id = %s and kind = 'board_transition'", (team_id,)
+        f"where team_id = %s and kind = 'catchup_roll'", (team_id,)
     )
     assert cursor.fetchone()['n'] == 0
+
+
+def test_team_has_spent_catchup_false_then_true(test_db, setup_candyland_tables):
+    event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
+    team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
+    state = _seed_team_to(test_db, team_id, 12)
+
+    assert candyland_methods.team_has_spent_catchup(team_id, testdb=test_db) is False
+
+    candyland_methods.catchup_roll_team(
+        team_id, 8, 12, 20, 900, 7, state['last_movement_id'], testdb=test_db
+    )
+
+    assert candyland_methods.team_has_spent_catchup(team_id, testdb=test_db) is True
+
+
+def test_get_pending_modifier_is_none_after_a_catchup_roll(test_db, setup_candyland_tables):
+    event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
+    team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
+    candyland_methods.advance_team_by_roll(team_id, 4, 1, 5, 900, 42, None, testdb=test_db)
+    state = candyland_methods.get_team_state(team_id, testdb=test_db)
+    candyland_methods.take_bounty(
+        team_id, 'ADVANTAGE', 42, state['last_movement_id'], testdb=test_db
+    )
+    unclaimed = candyland_methods.get_unclaimed_bounty(team_id, testdb=test_db)
+    state = candyland_methods.get_team_state(team_id, testdb=test_db)
+    candyland_methods.complete_bounty(
+        team_id, unclaimed['id'], 42, state['last_movement_id'], testdb=test_db
+    )
+    assert candyland_methods.get_pending_modifier(team_id, testdb=test_db) == 'ADVANTAGE'
+
+    state = candyland_methods.get_team_state(team_id, testdb=test_db)
+    candyland_methods.catchup_roll_team(
+        team_id, 7, state['current_sequence'], state['current_sequence'] + 7,
+        900, 42, state['last_movement_id'], testdb=test_db
+    )
+
+    assert candyland_methods.get_pending_modifier(team_id, testdb=test_db) is None
+
+
+def test_get_last_bounty_since_roll_is_none_after_a_catchup_roll(test_db, setup_candyland_tables):
+    event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
+    team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
+    candyland_methods.advance_team_by_roll(team_id, 4, 1, 5, 900, 42, None, testdb=test_db)
+    state = candyland_methods.get_team_state(team_id, testdb=test_db)
+    candyland_methods.take_bounty(
+        team_id, 'RETREAT', 42, state['last_movement_id'], testdb=test_db
+    )
+    assert candyland_methods.get_last_bounty_since_roll(team_id, testdb=test_db) == 'RETREAT'
+
+    state = candyland_methods.get_team_state(team_id, testdb=test_db)
+    candyland_methods.catchup_roll_team(
+        team_id, 7, state['current_sequence'], state['current_sequence'] + 7,
+        900, 42, state['last_movement_id'], testdb=test_db
+    )
+
+    assert candyland_methods.get_last_bounty_since_roll(team_id, testdb=test_db) is None
 
 
 def test_replay_folds_through_transition_then_roll():
@@ -766,6 +826,16 @@ def test_replay_folds_through_transition_then_roll():
     ]
 
     assert candyland_methods._replay(movements) == 45
+
+
+def test_replay_folds_through_catchup_roll():
+    movements = [
+        {'to_sequence': 12},   # roll
+        {'to_sequence': 20},   # catchup_roll, clamped level with the team ahead
+        {'to_sequence': 24},   # ordinary roll after
+    ]
+
+    assert candyland_methods._replay(movements) == 24
 
 
 def test_get_all_events_team_counts(test_db, setup_candyland_tables):
