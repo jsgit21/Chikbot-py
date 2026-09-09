@@ -6,10 +6,11 @@ register teams, and read board state back.
 
 Phase B: /candyland start (group kick-off, opens every team's tile-1 forum
 thread), /candyland roll (1d4+1 movement in #mainbingo plus the per-tile forum
-ceremony, the movement writes and the state fold), and /candyland clear (reset a
-test event). /candyland team-add provisions the team's Discord role and locked
-forum itself; /candyland clear deletes that event's roles, forums and tile
-threads and drops its team rows.
+ceremony, the movement writes and the state fold), and /candyland delete (remove
+an event outright). /candyland team-add provisions the team's Discord role and
+locked forum itself; /candyland delete removes that event's roles, forums and
+tile threads, then deletes the event row, which cascades to its teams and their
+movement history.
 
 Phase C wave 1: /candyland bounty (take one of six bounties against the current
   tile instead of rolling; once per bounty per board, tracked in
@@ -271,18 +272,42 @@ class Candyland(commands.Cog):
         await ctx.respond('\n'.join(lines))
 
     @commands.check(is_moderator)
-    @candyland.command(name='clear', description='TESTING ONLY: wipe an event and reset it to setup')
-    async def clear(self, ctx,
-                    event_slug: discord.Option(str, 'Event slug')):
+    @candyland.command(name='delete',
+                       description='Mod tool: permanently delete an event and everything in it')
+    async def delete(self, ctx,
+                     event_slug: discord.Option(str, 'Event slug')):
         event = await asyncio.to_thread(database.get_event, event_slug)
         if event is None:
             await ctx.respond(f'No candyland event with slug **{event_slug}**.')
             return
 
-        await ctx.defer()
-
         teams = await asyncio.to_thread(database.get_teams, event['id'])
         thread_rows = await asyncio.to_thread(database.get_all_tile_threads, event['id'])
+        team_names = ', '.join(f'**{t["name"]}**' for t in teams) if teams else '_none_'
+
+        view = candyland_ceremony.ConfirmDelete(ctx.author.id)
+        await ctx.respond(
+            '\n'.join([
+                f'Permanently delete **{event_slug}** (status `{event["status"]}`)?',
+                f'- Teams ({len(teams)}): {team_names}',
+                f'- Their Discord roles and forums, and {len(thread_rows)} tile thread(s)',
+                '- Every movement, team state and bounty use row belonging to them',
+                '',
+                '**This cannot be undone.** The movement history is append-only '
+                'and this command takes no backup.',
+            ]),
+            view=view,
+        )
+
+        timed_out = await view.wait()
+        if timed_out:
+            await ctx.edit(
+                content=f'Confirmation timed out, **{event_slug}** was not deleted.',
+                view=None,
+            )
+            return
+        if not view.confirmed:
+            return
 
         threads = await candyland_ceremony.delete_tile_threads(
             self.bot, [r['thread_id'] for r in thread_rows]
@@ -295,9 +320,9 @@ class Candyland(commands.Cog):
             {self.moderator_role_id, self.event_planner_role_id},
         )
 
-        await asyncio.to_thread(database.clear_event_teams, event['id'])
+        await asyncio.to_thread(database.delete_event, event['id'])
         await asyncio.to_thread(
-            database.write_audit, ctx.author.id, 'clear',
+            database.write_audit, ctx.author.id, 'delete',
             {'event_slug': event_slug, 'event_id': event['id'],
              'threads_deleted': len(threads['deleted']),
              'threads_missing': len(threads['missing']),
@@ -311,8 +336,9 @@ class Candyland(commands.Cog):
         )
 
         lines = [
-            f'Cleared **{event_slug}**: team rows dropped (movement, tile-thread '
-            f'records, team state and bounty use cascade), status back to `setup`.',
+            f'Deleted **{event_slug}**: the event row is gone, and its teams, '
+            f'movement history, tile-thread records, team state and bounty use '
+            f'cascaded with it.',
             f'Discord: {len(threads["deleted"])} tile thread(s), '
             f'{len(forums["deleted"])} forum(s), {len(roles["deleted"])} role(s) deleted; '
             f'{len(threads["missing"])}/{len(forums["missing"])}/{len(roles["missing"])} '
@@ -323,8 +349,8 @@ class Candyland(commands.Cog):
         failed = threads['failed'] + forums['failed'] + roles['failed']
         if failed:
             lines.append('Could not delete: ' + '; '.join(failed))
-        lines.append('Re-run `/candyland team-add` for each team to set up again.')
-        await ctx.respond('\n'.join(lines))
+        lines.append('Re-run `/candyland setup-event` to start over.')
+        await ctx.edit(content='\n'.join(lines), view=None)
 
     @commands.check(is_moderator)
     @candyland.command(name='manual-move',

@@ -8,8 +8,8 @@ candyland_cog.py under a TEST HARNESS banner; every line of logic is here.
 Removal after the event: delete this file, delete the bannered TEST HARNESS
 block in candyland_cog.py, delete the mod-guide test section.
 
-Imports and calls production helpers (candyland_ceremony, candyland_db_methods,
-candyland_connection); does NOT import candyland_cog (which imports this), so
+Imports and calls production helpers (candyland_ceremony,
+candyland_db_methods); does NOT import candyland_cog (which imports this), so
 there is no circular import.
 """
 
@@ -18,7 +18,6 @@ import asyncio
 import discord
 
 from . import candyland_ceremony
-from . import candyland_connection
 from . import candyland_db_methods as database
 
 TEST_EVENT_SLUG = 'candyland-test'
@@ -189,8 +188,7 @@ async def run_teardown(cog, ctx):
         roles = await candyland_ceremony.delete_team_roles(
             ctx.guild, [t['role_id'] for t in teams], protected
         )
-        await asyncio.to_thread(database.clear_event_teams, event['id'])
-        await asyncio.to_thread(_delete_test_event)
+        await asyncio.to_thread(database.delete_event, event['id'])
 
     category = discord.utils.get(ctx.guild.categories, name=TEST_CATEGORY_NAME)
     if category is not None:
@@ -248,13 +246,3 @@ async def run_teardown(cog, ctx):
         lines.append('Nothing to remove.')
     lines.append('`#mainbingo` and the real team roles are untouched.')
     await ctx.respond('\n'.join(lines))
-
-
-def _delete_test_event():
-    # The one DB write teardown needs that no production helper covers. Raw SQL,
-    # autocommit on (repo default per candyland_connection). Cascades to
-    # team / tile_thread / movement / team_state / bounty_use.
-    db = candyland_connection.create_connection()
-    db.cursor().execute(
-        "delete from event where slug = %s", (TEST_EVENT_SLUG,)
-    )

@@ -15,7 +15,7 @@ _BOUNTY_THREAD_BODY = (
     'Post your proof here, then run `/candyland bounty-claim` in <#{channel}>.\n{role}'
 )
 _ARCHIVE_REASON = 'candyland: tile proven, team advanced'
-_CLEAR_REASON = 'candyland: /candyland clear teardown'
+_CLEAR_REASON = 'candyland: /candyland delete teardown'
 
 
 def build_team_forum_overwrites(guild, team_role, moderator_role, event_planner_role):
@@ -104,6 +104,41 @@ async def open_tile_thread(bot, forum_channel_id, mainbingo_channel_id,
     except discord.HTTPException as e:
         pin_step = f'FAIL {e!r}'
     return thread, pin_step
+
+
+class ConfirmDelete(discord.ui.View):
+    """Confirm/cancel gate for `/candyland delete`. Only the moderator who ran
+    the command can answer it, so a second mod cannot press the button on
+    someone else's prompt."""
+
+    def __init__(self, invoker_id):
+        super().__init__(timeout=60)
+        self.invoker_id = invoker_id
+        self.confirmed = False
+
+    async def interaction_check(self, interaction):
+        if interaction.user.id != self.invoker_id:
+            await interaction.response.send_message(
+                'Only the moderator who ran this command can answer it.',
+                ephemeral=True,
+            )
+            return False
+        return True
+
+    @discord.ui.button(label='Delete permanently', style=discord.ButtonStyle.danger)
+    async def confirm(self, button, interaction):
+        self.confirmed = True
+        await interaction.response.edit_message(
+            content='Deleting, this can take a moment...', view=None
+        )
+        self.stop()
+
+    @discord.ui.button(label='Cancel', style=discord.ButtonStyle.secondary)
+    async def cancel(self, button, interaction):
+        await interaction.response.edit_message(
+            content='Cancelled, nothing was deleted.', view=None
+        )
+        self.stop()
 
 
 async def delete_tile_threads(bot, thread_ids):

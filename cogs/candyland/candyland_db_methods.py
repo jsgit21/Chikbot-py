@@ -829,16 +829,15 @@ def move_open_thread_to_tile(team_id, tile_sequence, new_thread_id, testdb=None)
         raise
 
 
-def clear_event_teams(event_id, testdb=None):
-    # Test-only reset: drop every team for the event (FKs cascade to movement,
-    # tile_thread, team_state, bounty_use) and send the event back to 'setup'.
-    # Keeps the event row. Never call this on a real event.
+def delete_event(event_id, testdb=None):
+    # Deleting the event row is the whole job: FKs cascade to team, and from
+    # there to movement, tile_thread, team_state and bounty_use. Irreversible,
+    # including the append-only movement history, so callers gate it.
     db = testdb if testdb else connection.create_connection()
     db.begin()
     try:
         cursor = db.cursor()
-        cursor.execute("delete from team where event_id = %s", (event_id,))
-        cursor.execute("update event set status = 'setup' where id = %s", (event_id,))
+        cursor.execute("delete from event where id = %s", (event_id,))
         db.commit()
     except Exception:
         db.rollback()

@@ -52,6 +52,12 @@ def setup_candyland_tables(test_db):
             f'foreign key ({column}) references {TEST_DATABASE}.{parent} (id) '
             f'on delete cascade'
         )
+    # bounty is reference text, not per-test state, and `create table ... like`
+    # copies columns but no rows. Without this the task and reward copy reads
+    # back empty and the seed has to be reapplied by hand after every run.
+    cursor.execute(
+        f'insert into {TEST_DATABASE}.bounty select * from {SOURCE_DATABASE}.bounty'
+    )
 
 
 def test_create_and_get_event(test_db, setup_candyland_tables):
@@ -239,16 +245,16 @@ def test_move_open_thread_to_tile_inserts_for_a_new_tile(test_db, setup_candylan
     assert cursor.fetchone()['n'] == 2
 
 
-def test_clear_event_teams_drops_teams_and_cascades(test_db, setup_candyland_tables):
+def test_delete_event_removes_event_and_cascades(test_db, setup_candyland_tables):
     event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
     team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
     candyland_methods.set_event_status('e', 'live', testdb=test_db)
     candyland_methods.advance_team_by_roll(team_id, 3, 1, 4, 900, 42, None, testdb=test_db)
     candyland_methods.open_tile_thread(team_id, 4, 901, testdb=test_db)
 
-    candyland_methods.clear_event_teams(event_id, testdb=test_db)
+    candyland_methods.delete_event(event_id, testdb=test_db)
 
-    assert candyland_methods.get_event('e', testdb=test_db)['status'] == 'setup'
+    assert candyland_methods.get_event('e', testdb=test_db) is None
     assert len(candyland_methods.get_teams(event_id, testdb=test_db)) == 0
 
     cursor = test_db.cursor(pymysql.cursors.DictCursor)
@@ -260,16 +266,16 @@ def test_clear_event_teams_drops_teams_and_cascades(test_db, setup_candyland_tab
         assert cursor.fetchone()['n'] == 0
 
 
-def test_clear_event_teams_leaves_other_events_intact(test_db, setup_candyland_tables):
+def test_delete_event_leaves_other_events_intact(test_db, setup_candyland_tables):
     keep_id = candyland_methods.create_event('keep', None, None, testdb=test_db)
     candyland_methods.register_team(keep_id, 'Keepers', 111, 222, 0, testdb=test_db)
     drop_id = candyland_methods.create_event('drop', None, None, testdb=test_db)
     candyland_methods.register_team(drop_id, 'Droppers', 333, 444, 0, testdb=test_db)
 
-    candyland_methods.clear_event_teams(drop_id, testdb=test_db)
+    candyland_methods.delete_event(drop_id, testdb=test_db)
 
     assert [t['name'] for t in candyland_methods.get_teams(keep_id, testdb=test_db)] == ['Keepers']
-    assert len(candyland_methods.get_teams(drop_id, testdb=test_db)) == 0
+    assert candyland_methods.get_event('drop', testdb=test_db) is None
     assert candyland_methods.get_event('keep', testdb=test_db)['status'] == 'setup'
 
 
