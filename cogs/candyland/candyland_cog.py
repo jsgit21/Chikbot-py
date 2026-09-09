@@ -275,26 +275,39 @@ class Candyland(commands.Cog):
     @candyland.command(name='delete',
                        description='Mod tool: permanently delete an event and everything in it')
     async def delete(self, ctx,
-                     event_slug: discord.Option(str, 'Event slug'),
-                     confirm: discord.Option(str, 'Retype the slug exactly to confirm')):
+                     event_slug: discord.Option(str, 'Event slug')):
         event = await asyncio.to_thread(database.get_event, event_slug)
         if event is None:
             await ctx.respond(f'No candyland event with slug **{event_slug}**.')
             return
 
-        # The slug has to be typed twice because this cascades to the
-        # append-only movement history and there is no undo.
-        if confirm != event_slug:
-            await ctx.respond(
-                f'Confirmation did not match, nothing deleted. Retype '
-                f'**{event_slug}** exactly to delete it.'
-            )
-            return
-
-        await ctx.defer()
-
         teams = await asyncio.to_thread(database.get_teams, event['id'])
         thread_rows = await asyncio.to_thread(database.get_all_tile_threads, event['id'])
+        team_names = ', '.join(f'**{t["name"]}**' for t in teams) if teams else '_none_'
+
+        view = candyland_ceremony.ConfirmDelete(ctx.author.id)
+        await ctx.respond(
+            '\n'.join([
+                f'Permanently delete **{event_slug}** (status `{event["status"]}`)?',
+                f'- Teams ({len(teams)}): {team_names}',
+                f'- Their Discord roles and forums, and {len(thread_rows)} tile thread(s)',
+                '- Every movement, team state and bounty use row belonging to them',
+                '',
+                '**This cannot be undone.** The movement history is append-only '
+                'and this command takes no backup.',
+            ]),
+            view=view,
+        )
+
+        timed_out = await view.wait()
+        if timed_out:
+            await ctx.edit(
+                content=f'Confirmation timed out, **{event_slug}** was not deleted.',
+                view=None,
+            )
+            return
+        if not view.confirmed:
+            return
 
         threads = await candyland_ceremony.delete_tile_threads(
             self.bot, [r['thread_id'] for r in thread_rows]
@@ -337,7 +350,7 @@ class Candyland(commands.Cog):
         if failed:
             lines.append('Could not delete: ' + '; '.join(failed))
         lines.append('Re-run `/candyland setup-event` to start over.')
-        await ctx.respond('\n'.join(lines))
+        await ctx.edit(content='\n'.join(lines), view=None)
 
     @commands.check(is_moderator)
     @candyland.command(name='manual-move',
