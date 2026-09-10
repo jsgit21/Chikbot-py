@@ -36,34 +36,49 @@ def blocking_condition(thread_tile_sequence, from_sequence, board_size):
     return None
 
 
-def roll_move(from_sequence, board_size, modifier=None, ceiling=None,
-              extra_die=False):
+def _d():
+    """One movement die: 1d4 + 1, i.e. 2-5."""
+    return random.randint(1, 4) + 1
+
+
+def roll_move(from_sequence, board_size, modifier=None):
     """Roll 1d4+1 (or a bounty-modified roll) and clamp to the final tile.
 
     modifier: None -> single 1d4+1; 'DISADVANTAGE' -> lower of two;
     'ADVANTAGE' -> higher of two; 'DOUBLE_DOWN' -> the two summed (4-10).
 
-    extra_die: the doomsday catch-up. When true one more 1d4+1 is added on top of
-    whatever the modifier produced. It stacks with any modifier rather than
-    replacing it, so an Advantage catch-up is max(d(), d()) + d().
-
-    ceiling: an optional upper tile the destination cannot pass, clamped together
-    with the board end. The catch-up roll passes the lowest tile occupied by a
-    team ahead so a caught-up team lands level with it, never past it. None means
-    only the board end clamps.
+    The doomsday catch-up is not applied here - see catchup_move, which the cog
+    calls with this function's result when a team is eligible.
     """
-    def d():
-        return random.randint(1, 4) + 1
-
     if modifier == 'DISADVANTAGE':
-        die = min(d(), d())
+        die = min(_d(), _d())
     elif modifier == 'ADVANTAGE':
-        die = max(d(), d())
+        die = max(_d(), _d())
     elif modifier == 'DOUBLE_DOWN':
-        die = d() + d()
+        die = _d() + _d()
     else:
-        die = d()
-    if extra_die:
-        die += d()
-    limit = board_size if ceiling is None else min(board_size, ceiling)
-    return die, min(from_sequence + die, limit)
+        die = _d()
+    return die, min(from_sequence + die, board_size)
+
+
+def catchup_move(from_sequence, ordinary_die, blocker_tile, board_size):
+    """The doomsday catch-up, applied to a team's ordinary roll.
+
+    Call this only when the team is eligible: the reveal has happened, this is
+    the team's first roll since it, and at least one other team is on a higher
+    tile (blocker_tile is the lowest such tile).
+
+    If the ordinary roll already lands the team within 2 tiles of blocker_tile,
+    level with it, or past it, there is no catch-up: the ordinary roll stands.
+    Otherwise one more 1d4+1 is added and the destination is clamped to
+    blocker_tile - 1 - one tile behind the team ahead, never level, never past.
+
+    Returns (die, to_sequence), same shape as roll_move. die is the ordinary
+    roll unchanged when no catch-up applied, or the ordinary roll plus the
+    extra 1d4+1 when it did.
+    """
+    ordinary_landing = min(from_sequence + ordinary_die, board_size)
+    if blocker_tile - ordinary_landing <= 2:
+        return ordinary_die, ordinary_landing
+    die = ordinary_die + _d()
+    return die, min(from_sequence + die, board_size, blocker_tile - 1)

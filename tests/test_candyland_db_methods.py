@@ -760,18 +760,80 @@ def test_catchup_roll_team_rejects_stale_guard(test_db, setup_candyland_tables):
     assert cursor.fetchone()['n'] == 0
 
 
-def test_team_has_spent_catchup_false_then_true(test_db, setup_candyland_tables):
+def test_team_has_rolled_since_reveal(test_db, setup_candyland_tables):
     event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
     team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
     state = _seed_team_to(test_db, team_id, 12)
 
-    assert candyland_methods.team_has_spent_catchup(team_id, testdb=test_db) is False
-
-    candyland_methods.catchup_roll_team(
-        team_id, 8, 12, 20, 900, 7, state['last_movement_id'], testdb=test_db
+    cursor = test_db.cursor()
+    cursor.execute(
+        f"update {TEST_DATABASE}.event set board2_revealed_at = %s where id = %s",
+        ('2020-01-01 00:00:00', event_id),
     )
+    revealed_at = candyland_methods.get_event('e', testdb=test_db)['board2_revealed_at']
 
-    assert candyland_methods.team_has_spent_catchup(team_id, testdb=test_db) is True
+    assert candyland_methods.team_has_rolled_since_reveal(
+        team_id, revealed_at, testdb=test_db
+    ) is False
+
+    candyland_methods.advance_team_by_roll(
+        team_id, 4, 12, 16, 900, 7, state['last_movement_id'], testdb=test_db
+    )
+    assert candyland_methods.team_has_rolled_since_reveal(
+        team_id, revealed_at, testdb=test_db
+    ) is True
+
+
+def test_team_has_rolled_since_reveal_ignores_rolls_before_the_reveal(test_db, setup_candyland_tables):
+    event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
+    team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
+    state = _seed_team_to(test_db, team_id, 5)
+    candyland_methods.advance_team_by_roll(
+        team_id, 4, 5, 9, 900, 7, state['last_movement_id'], testdb=test_db
+    )
+    cursor = test_db.cursor()
+    cursor.execute(
+        f"update {TEST_DATABASE}.event set board2_revealed_at = %s where id = %s",
+        ('2999-01-01 00:00:00', event_id),
+    )
+    revealed_at = candyland_methods.get_event('e', testdb=test_db)['board2_revealed_at']
+    assert candyland_methods.team_has_rolled_since_reveal(
+        team_id, revealed_at, testdb=test_db
+    ) is False
+
+
+def test_team_has_rolled_since_reveal_ignores_a_bounty_claim(test_db, setup_candyland_tables):
+    event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
+    team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
+    state = _seed_team_to(test_db, team_id, 12)
+
+    cursor = test_db.cursor()
+    cursor.execute(
+        f"update {TEST_DATABASE}.event set board2_revealed_at = %s where id = %s",
+        ('2020-01-01 00:00:00', event_id),
+    )
+    revealed_at = candyland_methods.get_event('e', testdb=test_db)['board2_revealed_at']
+
+    candyland_methods.take_bounty(
+        team_id, 'ADVANTAGE', 42, state['last_movement_id'], testdb=test_db
+    )
+    unclaimed = candyland_methods.get_unclaimed_bounty(team_id, testdb=test_db)
+    state = candyland_methods.get_team_state(team_id, testdb=test_db)
+    candyland_methods.complete_bounty(
+        team_id, unclaimed['id'], 42, state['last_movement_id'], testdb=test_db
+    )
+    assert candyland_methods.team_has_rolled_since_reveal(
+        team_id, revealed_at, testdb=test_db
+    ) is False
+
+    state = candyland_methods.get_team_state(team_id, testdb=test_db)
+    candyland_methods.advance_team_by_roll(
+        team_id, 4, state['current_sequence'], state['current_sequence'] + 4,
+        900, 7, state['last_movement_id'], testdb=test_db
+    )
+    assert candyland_methods.team_has_rolled_since_reveal(
+        team_id, revealed_at, testdb=test_db
+    ) is True
 
 
 def test_get_pending_modifier_is_none_after_a_catchup_roll(test_db, setup_candyland_tables):

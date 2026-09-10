@@ -590,22 +590,23 @@ class Candyland(commands.Cog):
         board_size = (candyland_board.TOTAL_TILES if revealed
                       else candyland_board.BOARD1_SIZE)
 
-        # Post-reveal catch-up: a team with at least one other team strictly
-        # ahead gets one extra 1d4+1 on its next roll, clamped to the lowest
-        # tile any team ahead stands on. Pre-reveal there is no ceiling and no
-        # extra die.
-        ceiling = None
+        # Post-reveal catch-up (event-rules decision 37): on a team's FIRST roll
+        # after the reveal, if that ordinary roll still leaves it more than 2
+        # tiles behind the nearest team ahead, it takes one extra 1d4+1 clamped
+        # to one tile behind that team. Checked once, on the first roll only.
+        blocker_tile = None
         blocker_team_id = None
-        if revealed:
+        if revealed and not await asyncio.to_thread(
+            database.team_has_rolled_since_reveal,
+            team['id'], event['board2_revealed_at'],
+        ):
             ahead = [(row['current_sequence'], row['team_id'])
                      for row in await asyncio.to_thread(database.get_all_state, event['id'])
                      if row['team_id'] != team['id']
                      and row['current_sequence'] > from_sequence]
             if ahead:
-                ceiling, blocker_team_id = min(ahead)
-        extra_die = revealed and ceiling is not None and not await asyncio.to_thread(
-            database.team_has_spent_catchup, team['id']
-        )
+                blocker_tile, blocker_team_id = min(ahead)
+        catchup_eligible = blocker_tile is not None
 
         team_role = ctx.guild.get_role(team['role_id'])
         if team_role is None:
@@ -682,10 +683,18 @@ class Candyland(commands.Cog):
             return
 
         die, to_sequence = candyland_roll.roll_move(
-            from_sequence, board_size, modifier,
-            ceiling=ceiling if extra_die else None, extra_die=extra_die,
+            from_sequence, board_size, modifier
         )
-        clamped_at = to_sequence if from_sequence + die > to_sequence else None
+        extra_die = False
+        clamped_at = None
+        if catchup_eligible:
+            ordinary_die = die
+            die, to_sequence = candyland_roll.catchup_move(
+                from_sequence, ordinary_die, blocker_tile, board_size,
+            )
+            extra_die = die != ordinary_die
+            if extra_die and from_sequence + die > to_sequence:
+                clamped_at = to_sequence
         blocker = next((t for t in teams if t['id'] == blocker_team_id), None)
         blocked_by = (blocker['acronym'] or blocker['name']) if blocker else None
 

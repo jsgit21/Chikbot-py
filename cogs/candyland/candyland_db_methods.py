@@ -498,9 +498,11 @@ def team_has_crossed_to_board2(team_id, testdb=None):
     return cursor.fetchone() is not None
 
 
-def team_has_spent_catchup(team_id, testdb=None):
-    # Once-per-team guard for the doomsday catch-up: a team gets the extra die on
-    # exactly one roll, so a single 'catchup_roll' row spends it forever.
+def team_has_rolled_since_reveal(team_id, revealed_at, testdb=None):
+    # The doomsday catch-up is checked only on a team's first roll after the
+    # reveal (event-rules decision 37). If the team already has a roll or
+    # catchup_roll movement dated after board2_revealed_at, that first roll has
+    # happened and no extra die is offered - the catch-up is not stored.
     db = testdb if testdb else connection.create_connection()
     cursor = db.cursor()
 
@@ -508,10 +510,11 @@ def team_has_spent_catchup(team_id, testdb=None):
         select 1
           from movement
          where team_id = %s
-           and kind = 'catchup_roll'
+           and kind in ('roll', 'catchup_roll')
+           and created_at > %s
          limit 1
     """
-    cursor.execute(query, (team_id,))
+    cursor.execute(query, (team_id, revealed_at))
     return cursor.fetchone() is not None
 
 

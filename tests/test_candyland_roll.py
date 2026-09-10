@@ -52,46 +52,39 @@ def test_roll_move_clamps_to_final_tile():
     assert to_sequence == 42
 
 
-def test_roll_move_extra_die_no_modifier_is_4_to_10():
+def test_catchup_move_no_catchup_when_ordinary_roll_lands_within_two():
+    # gap of exactly 2 after the ordinary roll -> no extra die
     for _ in range(200):
-        die, _ = candyland_roll.roll_move(10, 65, extra_die=True)
-        assert 4 <= die <= 10
+        die, to_sequence = candyland_roll.catchup_move(30, 5, 37, 65)
+        assert die == 5
+        assert to_sequence == 35
 
 
-def test_roll_move_extra_die_stacks_with_double_down():
+def test_catchup_move_no_catchup_when_ordinary_roll_reaches_or_passes_blocker():
     for _ in range(200):
-        die, _ = candyland_roll.roll_move(10, 65, 'DOUBLE_DOWN', extra_die=True)
-        assert 6 <= die <= 15
+        die, to_sequence = candyland_roll.catchup_move(38, 4, 41, 65)
+        assert die == 4
+        assert to_sequence == 42  # past the blocker on 41, ordinary roll stands
 
 
-def test_roll_move_extra_die_stacks_with_advantage_and_disadvantage():
-    # min/max of two 1d4+1 is still 2..5, so with the extra 1d4+1 both land in
-    # 4..10 (the modifier only skews the distribution, not the bounds).
+def test_catchup_move_adds_a_die_when_still_more_than_two_behind():
+    # from 10, ordinary 3 -> lands 13, blocker 40: gap 27, always catches up
     for _ in range(200):
-        adv, _ = candyland_roll.roll_move(10, 65, 'ADVANTAGE', extra_die=True)
-        dis, _ = candyland_roll.roll_move(10, 65, 'DISADVANTAGE', extra_die=True)
-        assert 4 <= adv <= 10
-        assert 4 <= dis <= 10
+        die, to_sequence = candyland_roll.catchup_move(10, 3, 40, 65)
+        assert 5 <= die <= 8            # 3 + (2..5)
+        assert to_sequence == 10 + die  # well below blocker - 1, unclamped
 
 
-def test_roll_move_catchup_clamps_to_ceiling_on_overshoot():
+def test_catchup_move_never_lands_level_with_or_past_the_blocker():
+    # from 10, ordinary 3 -> lands 13 (gap 5, catches up); totals 5..8 reach
+    # 15..18, so it clamps to 17 (blocker - 1) whenever it would reach 18+
     for _ in range(200):
-        _, to_sequence = candyland_roll.roll_move(20, 65, ceiling=23, extra_die=True)
-        assert to_sequence == 23
+        die, to_sequence = candyland_roll.catchup_move(10, 3, 18, 65)
+        assert to_sequence <= 17
+        assert to_sequence == min(10 + die, 17)
 
 
-def test_roll_move_catchup_below_ceiling_is_unclamped():
-    die, to_sequence = candyland_roll.roll_move(5, 65, ceiling=60, extra_die=True)
-    assert to_sequence == 5 + die
-
-
-def test_roll_move_ceiling_above_board_size_does_not_raise_board_clamp():
-    _, to_sequence = candyland_roll.roll_move(40, 42, ceiling=100, extra_die=True)
-    assert to_sequence == 42
-
-
-def test_roll_move_no_extra_die_no_ceiling_behaves_as_before():
+def test_catchup_move_respects_the_board_end():
     for _ in range(200):
-        die, to_sequence = candyland_roll.roll_move(10, 42)
-        assert 2 <= die <= 5
-        assert to_sequence == 10 + die
+        die, to_sequence = candyland_roll.catchup_move(55, 3, 66, 65)
+        assert to_sequence == min(55 + die, 65)

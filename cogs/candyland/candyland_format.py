@@ -40,12 +40,13 @@ def roll_announcement(team_mention, team_label, author_mention, from_sequence,
         if clamped_at is not None:
             if blocked_by:
                 lines.append(
-                    f'-# 🏁 The road ahead is blocked, it looks like team '
-                    f'{blocked_by} is standing in your way at tile {clamped_at}!'
+                    f'-# 🏁 Team {blocked_by} is blocking the road ahead - '
+                    f'your team pulls up just behind them at tile {clamped_at}.'
                 )
             else:
                 lines.append(
-                    f'-# 🏁 Pulled level with the team ahead at tile {clamped_at}.'
+                    f'-# 🏁 Your team pulls up just behind the team ahead at '
+                    f'tile {clamped_at}.'
                 )
         if new_thread_id is not None:
             lines.append('')
