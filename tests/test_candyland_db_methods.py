@@ -720,6 +720,27 @@ def test_mark_board2_leader_rejects_stale_guard(test_db, setup_candyland_tables)
     assert cursor.fetchone()['n'] == 0
 
 
+def test_get_board2_leader_returns_the_marked_team_and_tile(test_db, setup_candyland_tables):
+    event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
+    leader_id = candyland_methods.register_team(
+        event_id, 'Reds', 111, 222, 0, acronym='RED', testdb=test_db
+    )
+    other_id = candyland_methods.register_team(event_id, 'Blues', 333, 444, 1, testdb=test_db)
+    state = _seed_team_to(test_db, leader_id, candyland_board.BOARD1_SIZE)
+    _seed_team_to(test_db, other_id, 20)
+
+    assert candyland_methods.get_board2_leader(event_id, testdb=test_db) is None
+
+    candyland_methods.mark_board2_leader(
+        leader_id, 7, state['last_movement_id'], testdb=test_db
+    )
+    row = candyland_methods.get_board2_leader(event_id, testdb=test_db)
+    assert row['team_id'] == leader_id
+    assert row['name'] == 'Reds'
+    assert row['acronym'] == 'RED'
+    assert row['current_sequence'] == candyland_board.BOARD1_SIZE
+
+
 def test_catchup_roll_team_from_midboard_writes_row_and_folds(test_db, setup_candyland_tables):
     event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
     team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)

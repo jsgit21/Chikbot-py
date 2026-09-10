@@ -26,39 +26,55 @@ def test_roll_announcement_modifier_tag():
     assert '🎲 @Nick has rolled a.... _(with Advantage)_' in result
 
 
-def test_roll_announcement_extra_die_composes_with_modifier():
+def test_roll_announcement_second_wind_composes_with_modifier():
     plain = candyland_format.roll_announcement(
         '@Reds', 'RED', '@Nick', 3, 6, 'ART', extra_die=True,
+        catchup_band=(9, '1d6+1'), leader_label='BBC',
     )
-    assert 'bonus die' in plain
+    assert 'second wind' in plain
 
     with_mod = candyland_format.roll_announcement(
-        '@Reds', 'RED', '@Nick', 3, 6, 'ART', modifier_name='Advantage', extra_die=True,
+        '@Reds', 'RED', '@Nick', 3, 6, 'ART', modifier_name='Advantage',
+        extra_die=True, catchup_band=(9, '1d6+1'), leader_label='BBC',
     )
     assert 'Advantage' in with_mod
-    assert 'bonus die' in with_mod
+    assert 'second wind' in with_mod
     assert with_mod.count('_(with') == 1
 
 
-def test_roll_announcement_clamped_line_names_the_blocking_team():
+def test_roll_announcement_second_wind_line_when_not_clamped():
     result = candyland_format.roll_announcement(
         '@Reds', 'RED', '@Nick', 12, 8, 'ART', new_thread_id=900,
-        clamped_at=20, blocked_by='BLU',
+        extra_die=True, catchup_band=(9, '1d6+1'), leader_label='BBC',
     )
 
-    assert 'Team BLU is blocking the road ahead' in result
-    assert 'your team pulls up just behind them at tile 20' in result
+    assert 'progress BBC is making' in result
+    assert '1d6+1' in result
+    assert 'second wind' in result
+    assert 'blocked the way' not in result
     assert 'Board' not in result
     assert 'teleport' not in result.lower()
     assert "Your team's next tile is ➡️ <#900>" in result
 
 
-def test_roll_announcement_clamped_line_without_a_blocker_label():
+def test_roll_announcement_second_wind_line_when_clamped_to_the_leader():
     result = candyland_format.roll_announcement(
-        '@Reds', 'RED', '@Nick', 12, 8, 'ART', clamped_at=20,
+        '@Reds', 'RED', '@Nick', 12, 10, 'ART',
+        extra_die=True, catchup_band=(13, '1d8+1'), clamped_at=20, leader_label='BBC',
     )
 
-    assert 'Your team pulls up just behind the team ahead at tile 20' in result
+    assert 'progress BBC is making' in result
+    assert "on the leader's tail at tile 20" in result
+    assert 'blocked the way ahead' in result
+    assert '1d8+1' in result
+
+
+def test_roll_announcement_second_wind_line_falls_back_without_a_leader_label():
+    result = candyland_format.roll_announcement(
+        '@Reds', 'RED', '@Nick', 12, 8, 'ART', extra_die=True, catchup_band=(9, '1d6+1'),
+    )
+
+    assert 'progress the leader is making' in result
 
 
 def test_roll_announcement_final_tile_has_no_next_tile_line():

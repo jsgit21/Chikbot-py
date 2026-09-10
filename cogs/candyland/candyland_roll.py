@@ -61,24 +61,46 @@ def roll_move(from_sequence, board_size, modifier=None):
     return die, min(from_sequence + die, board_size)
 
 
-def catchup_move(from_sequence, ordinary_die, blocker_tile, board_size):
-    """The doomsday catch-up, applied to a team's ordinary roll.
+# Distance-scaled doomsday catch-up (event-rules decision 37). `gap` is how many
+# tiles behind the leader's current tile the team's ordinary roll left it. Each
+# band is (minimum gap, bonus die sides, label); the first match wins, largest
+# gap first. Below the smallest threshold there is no bonus die.
+CATCHUP_BANDS = (
+    (13, 8, '1d8+1'),
+    (9, 6, '1d6+1'),
+    (5, 4, '1d4+1'),
+)
+
+
+def _catchup_band(gap):
+    for threshold, sides, label in CATCHUP_BANDS:
+        if gap >= threshold:
+            return threshold, sides, label
+    return None
+
+
+def catchup_move(from_sequence, ordinary_die, leader_tile, board_size):
+    """The distance-scaled doomsday catch-up, applied to a team's ordinary roll.
 
     Call this only when the team is eligible: the reveal has happened, this is
-    the team's first roll since it, and at least one other team is on a higher
-    tile (blocker_tile is the lowest such tile).
+    the team's first roll since it, and the named leader is on a higher tile
+    (leader_tile is the leader's current tile).
 
-    If the ordinary roll already lands the team within 2 tiles of blocker_tile,
-    level with it, or past it, there is no catch-up: the ordinary roll stands.
-    Otherwise one more 1d4+1 is added and the destination is clamped to
-    blocker_tile - 1 - one tile behind the team ahead, never level, never past.
+    gap = leader_tile minus where the ordinary roll landed. Below 5 there is no
+    catch-up - the ordinary roll stands. From 5 up the team rolls one scaled
+    bonus die (1d4+1 / 1d6+1 / 1d8+1 by band) on top of the ordinary roll and
+    moves again, clamped to leader_tile - 1: one tile behind the leader, never
+    level, never past. The board end also clamps.
 
-    Returns (die, to_sequence), same shape as roll_move. die is the ordinary
-    roll unchanged when no catch-up applied, or the ordinary roll plus the
-    extra 1d4+1 when it did.
+    Returns (die, to_sequence, band). band is None when no bonus fired, else
+    (threshold, label) for the announcement. die is the ordinary roll unchanged
+    when band is None, else the ordinary roll plus the scaled bonus die.
     """
     ordinary_landing = min(from_sequence + ordinary_die, board_size)
-    if blocker_tile - ordinary_landing <= 2:
-        return ordinary_die, ordinary_landing
-    die = ordinary_die + _d()
-    return die, min(from_sequence + die, board_size, blocker_tile - 1)
+    band = _catchup_band(leader_tile - ordinary_landing)
+    if band is None:
+        return ordinary_die, ordinary_landing, None
+    threshold, sides, label = band
+    die = ordinary_die + random.randint(1, sides) + 1
+    to_sequence = min(from_sequence + die, board_size, leader_tile - 1)
+    return die, to_sequence, (threshold, label)

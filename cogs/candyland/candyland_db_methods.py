@@ -133,6 +133,31 @@ def get_team_by_role(event_id, role_id, testdb=None):
     return cursor.fetchone()
 
 
+def get_board2_leader(event_id, testdb=None):
+    # The team named in /candyland doomsday - the one team with a
+    # 'board_transition' movement row (mark_board2_leader guards it to one per
+    # event). Its current tile gates the post-reveal catch-up.
+    db = testdb if testdb else connection.create_connection()
+    cursor = db.cursor(pymysql.cursors.DictCursor)
+
+    query = """
+        select t.id as team_id,
+               t.name,
+               t.acronym,
+               s.current_sequence
+          from team t
+          join movement m
+            on m.team_id = t.id
+           and m.kind = 'board_transition'
+          join team_state s
+            on s.team_id = t.id
+         where t.event_id = %s
+         limit 1
+    """
+    cursor.execute(query, (event_id,))
+    return cursor.fetchone()
+
+
 def get_team_state(team_id, testdb=None):
     db = testdb if testdb else connection.create_connection()
     cursor = db.cursor(pymysql.cursors.DictCursor)

@@ -14,16 +14,17 @@ def header(team_label, subtext):
 def roll_announcement(team_mention, team_label, author_mention, from_sequence,
                       die, dice_art, new_thread_id=None, modifier_name=None,
                       final=False, extra_die=False, clamped_at=None,
-                      blocked_by=None):
-    # extra_die, clamped_at and blocked_by are the doomsday catch-up's display
-    # notes: an extra 1d4+1 folded into this roll, and (when the roll clamped
-    # against the team ahead) the tile it stopped on plus that team's label.
-    # They compose into the ordinary roll message; a catch-up roll has no
-    # announcement of its own.
+                      catchup_band=None, leader_label=None):
+    # extra_die / catchup_band / clamped_at / leader_label are the doomsday
+    # "second wind": a distance-scaled bonus die folded into this roll
+    # (catchup_band is (threshold, die_label), only the label is shown), the
+    # leader whose lead prompted it, and the tile it stopped on when the bonus
+    # would have caught the leader. They compose into the ordinary roll message;
+    # a catch-up roll has no announcement of its own.
     if modifier_name and extra_die:
-        mod_tag = f' _(with {modifier_name} and a bonus die)_'
+        mod_tag = f' _(with {modifier_name} and a second wind)_'
     elif extra_die:
-        mod_tag = ' _(with a bonus die)_'
+        mod_tag = ' _(with a second wind)_'
     elif modifier_name:
         mod_tag = f' _(with {modifier_name})_'
     else:
@@ -37,17 +38,19 @@ def roll_announcement(team_mention, team_label, author_mention, from_sequence,
     if final:
         lines.append('-# 🏁 This is the **final tile**.')
     else:
-        if clamped_at is not None:
-            if blocked_by:
-                lines.append(
-                    f'-# 🏁 Team {blocked_by} is blocking the road ahead - '
-                    f'your team pulls up just behind them at tile {clamped_at}.'
+        if extra_die and catchup_band is not None:
+            label = catchup_band[1]
+            leader = leader_label or 'the leader'
+            line = (
+                f'-# 🏁 Seeing how much progress {leader} is making has given '
+                f'your team a **{label}** second wind!'
+            )
+            if clamped_at is not None:
+                line += (
+                    f" Your team pulls right up on the leader's tail at tile "
+                    f'{clamped_at}, but they blocked the way ahead!'
                 )
-            else:
-                lines.append(
-                    f'-# 🏁 Your team pulls up just behind the team ahead at '
-                    f'tile {clamped_at}.'
-                )
+            lines.append(line)
         if new_thread_id is not None:
             lines.append('')
             lines.append(f"Your team's next tile is ➡️ <#{new_thread_id}>")

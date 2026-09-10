@@ -52,39 +52,60 @@ def test_roll_move_clamps_to_final_tile():
     assert to_sequence == 42
 
 
-def test_catchup_move_no_catchup_when_ordinary_roll_lands_within_two():
-    # gap of exactly 2 after the ordinary roll -> no extra die
+def test_catchup_move_no_second_wind_within_five_of_the_leader():
+    # ordinary roll lands 4 behind the leader -> no bonus die
     for _ in range(200):
-        die, to_sequence = candyland_roll.catchup_move(30, 5, 37, 65)
+        die, to_sequence, band = candyland_roll.catchup_move(30, 5, 39, 65)
         assert die == 5
         assert to_sequence == 35
+        assert band is None
 
 
-def test_catchup_move_no_catchup_when_ordinary_roll_reaches_or_passes_blocker():
+def test_catchup_move_no_second_wind_when_ordinary_roll_reaches_the_leader():
     for _ in range(200):
-        die, to_sequence = candyland_roll.catchup_move(38, 4, 41, 65)
-        assert die == 4
-        assert to_sequence == 42  # past the blocker on 41, ordinary roll stands
+        die, to_sequence, band = candyland_roll.catchup_move(38, 5, 41, 65)
+        assert die == 5
+        assert to_sequence == 43  # past the leader on 41, ordinary roll stands
+        assert band is None
 
 
-def test_catchup_move_adds_a_die_when_still_more_than_two_behind():
-    # from 10, ordinary 3 -> lands 13, blocker 40: gap 27, always catches up
+def test_catchup_move_small_band_is_1d4_plus_1():
+    # from 30, ordinary 2 -> lands 32, leader 40: gap 8 -> 1d4+1 band
     for _ in range(200):
-        die, to_sequence = candyland_roll.catchup_move(10, 3, 40, 65)
-        assert 5 <= die <= 8            # 3 + (2..5)
-        assert to_sequence == 10 + die  # well below blocker - 1, unclamped
+        die, to_sequence, band = candyland_roll.catchup_move(30, 2, 40, 65)
+        assert 4 <= die <= 7            # 2 + (2..5)
+        assert band == (5, '1d4+1')
+        assert to_sequence == min(30 + die, 39)
 
 
-def test_catchup_move_never_lands_level_with_or_past_the_blocker():
-    # from 10, ordinary 3 -> lands 13 (gap 5, catches up); totals 5..8 reach
-    # 15..18, so it clamps to 17 (blocker - 1) whenever it would reach 18+
+def test_catchup_move_mid_band_is_1d6_plus_1():
+    # from 20, ordinary 2 -> lands 22, leader 33: gap 11 -> 1d6+1 band
     for _ in range(200):
-        die, to_sequence = candyland_roll.catchup_move(10, 3, 18, 65)
-        assert to_sequence <= 17
-        assert to_sequence == min(10 + die, 17)
+        die, to_sequence, band = candyland_roll.catchup_move(20, 2, 33, 65)
+        assert 4 <= die <= 9            # 2 + (2..7)
+        assert band == (9, '1d6+1')
+        assert to_sequence == min(20 + die, 32)
+
+
+def test_catchup_move_far_band_is_1d8_plus_1():
+    # from 10, ordinary 2 -> lands 12, leader 40: gap 28 -> 1d8+1 band
+    for _ in range(200):
+        die, to_sequence, band = candyland_roll.catchup_move(10, 2, 40, 65)
+        assert 4 <= die <= 11           # 2 + (2..9)
+        assert band == (13, '1d8+1')
+        assert to_sequence == 10 + die  # far below leader - 1, unclamped
+
+
+def test_catchup_move_never_lands_level_with_or_past_the_leader():
+    # from 30, ordinary 2 -> lands 32, leader 38 (gap 6, 1d4+1 band); totals
+    # 4..7 reach 34..37, clamp to 37 (leader - 1) when it would reach 38+
+    for _ in range(200):
+        die, to_sequence, band = candyland_roll.catchup_move(30, 2, 38, 65)
+        assert to_sequence <= 37
+        assert to_sequence == min(30 + die, 37)
 
 
 def test_catchup_move_respects_the_board_end():
     for _ in range(200):
-        die, to_sequence = candyland_roll.catchup_move(55, 3, 66, 65)
+        die, to_sequence, band = candyland_roll.catchup_move(55, 3, 66, 65)
         assert to_sequence == min(55 + die, 65)

@@ -591,22 +591,21 @@ class Candyland(commands.Cog):
                       else candyland_board.BOARD1_SIZE)
 
         # Post-reveal catch-up (event-rules decision 37): on a team's FIRST roll
-        # after the reveal, if that ordinary roll still leaves it more than 2
-        # tiles behind the nearest team ahead, it takes one extra 1d4+1 clamped
-        # to one tile behind that team. Checked once, on the first roll only.
-        blocker_tile = None
-        blocker_team_id = None
+        # after the reveal, a distance-scaled "second wind" die if the ordinary
+        # roll still leaves it 5+ tiles behind the named leader's current tile.
+        # Only the leader gates it; checked once, on the first roll only.
+        leader_tile = None
+        leader_label = None
         if revealed and not await asyncio.to_thread(
             database.team_has_rolled_since_reveal,
             team['id'], event['board2_revealed_at'],
         ):
-            ahead = [(row['current_sequence'], row['team_id'])
-                     for row in await asyncio.to_thread(database.get_all_state, event['id'])
-                     if row['team_id'] != team['id']
-                     and row['current_sequence'] > from_sequence]
-            if ahead:
-                blocker_tile, blocker_team_id = min(ahead)
-        catchup_eligible = blocker_tile is not None
+            leader = await asyncio.to_thread(database.get_board2_leader, event['id'])
+            if (leader is not None and leader['team_id'] != team['id']
+                    and leader['current_sequence'] > from_sequence):
+                leader_tile = leader['current_sequence']
+                leader_label = leader['acronym'] or leader['name']
+        catchup_eligible = leader_tile is not None
 
         team_role = ctx.guild.get_role(team['role_id'])
         if team_role is None:
@@ -687,16 +686,15 @@ class Candyland(commands.Cog):
         )
         extra_die = False
         clamped_at = None
+        catchup_band = None
         if catchup_eligible:
             ordinary_die = die
-            die, to_sequence = candyland_roll.catchup_move(
-                from_sequence, ordinary_die, blocker_tile, board_size,
+            die, to_sequence, catchup_band = candyland_roll.catchup_move(
+                from_sequence, ordinary_die, leader_tile, board_size,
             )
-            extra_die = die != ordinary_die
+            extra_die = catchup_band is not None
             if extra_die and from_sequence + die > to_sequence:
                 clamped_at = to_sequence
-        blocker = next((t for t in teams if t['id'] == blocker_team_id), None)
-        blocked_by = (blocker['acronym'] or blocker['name']) if blocker else None
 
         writer = database.catchup_roll_team if extra_die else database.advance_team_by_roll
         movement_id = await asyncio.to_thread(
@@ -720,7 +718,8 @@ class Candyland(commands.Cog):
             candyland_format.roll_announcement(
                 team_role.mention, team_label, ctx.author.mention, from_sequence,
                 die, art, modifier_name=modifier_name, final=final,
-                extra_die=extra_die, clamped_at=clamped_at, blocked_by=blocked_by,
+                extra_die=extra_die, clamped_at=clamped_at, catchup_band=catchup_band,
+                leader_label=leader_label,
             ),
             allowed_mentions=discord.AllowedMentions(users=False, roles=False),
         )
@@ -738,7 +737,8 @@ class Candyland(commands.Cog):
                         team_role.mention, team_label, ctx.author.mention,
                         from_sequence, die, art, new_thread_id=result['new_thread_id'],
                         modifier_name=modifier_name, final=final,
-                        extra_die=extra_die, clamped_at=clamped_at, blocked_by=blocked_by,
+                        extra_die=extra_die, clamped_at=clamped_at, catchup_band=catchup_band,
+                        leader_label=leader_label,
                     ),
                     allowed_mentions=discord.AllowedMentions(users=False, roles=False),
                 )
@@ -749,7 +749,7 @@ class Candyland(commands.Cog):
             'catchup_roll' if extra_die else 'roll',
             {'event_slug': event['slug'], 'team_id': team['id'], 'die': die,
              'from': from_sequence, 'to': to_sequence, 'movement_id': movement_id,
-             'modifier': modifier, 'clamped': clamped_at,
+             'modifier': modifier, 'clamped': clamped_at, 'catchup_band': catchup_band,
              'ceremony': result['steps'], 'ceremony_failures': result['failures']},
         )
 

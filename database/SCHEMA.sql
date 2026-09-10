@@ -79,7 +79,7 @@ create table candyland.movement (
   -- roll, update get_pending_modifier AND get_last_bounty_since_roll, which both
   -- anchor on "the team's last roll".
   kind enum('roll','adjustment','board_transition','catchup_roll') not null,
-  roll_total tinyint unsigned,              -- roll result, 2..5 normally, up to 15 with a Double Down bounty plus the doomsday catch-up die; null for adjustment/board_transition. start/end are from_sequence/to_sequence
+  roll_total tinyint unsigned,              -- roll result, 2..5 normally, up to 19 with a Double Down bounty plus the doomsday catch-up die; null for adjustment/board_transition. start/end are from_sequence/to_sequence
   from_sequence int not null,
   to_sequence int not null,
   proof_thread_id bigint unsigned,          -- the thread whose images justified this move
