@@ -69,31 +69,46 @@ def test_catchup_move_no_second_wind_when_ordinary_roll_reaches_the_leader():
         assert band is None
 
 
-def test_catchup_move_small_band_is_1d4_plus_1():
-    # from 30, ordinary 2 -> lands 32, leader 40: gap 8 -> 1d4+1 band
+def test_catchup_modifier_table():
+    assert candyland_roll.catchup_modifier(4) is None
+    assert candyland_roll.catchup_modifier(5) == 1
+    assert candyland_roll.catchup_modifier(7) == 1
+    assert candyland_roll.catchup_modifier(8) == 2
+    assert candyland_roll.catchup_modifier(13) == 3
+    assert candyland_roll.catchup_modifier(19) == 5
+    assert candyland_roll.catchup_modifier(20) == 6
+    assert candyland_roll.catchup_modifier(42) == 6  # capped
+
+
+def test_catchup_move_small_gap_is_1d4_plus_1():
+    # from 30, ordinary 2 -> lands 32, leader 40: gap 8 -> modifier 2
     for _ in range(200):
-        die, to_sequence, band = candyland_roll.catchup_move(30, 2, 40, 65)
-        assert 4 <= die <= 7            # 2 + (2..5)
-        assert band == (5, '1d4+1')
+        die, to_sequence, second_wind = candyland_roll.catchup_move(30, 2, 40, 65)
+        assert 5 <= die <= 8            # 2 + (2 + 1..4)
+        assert second_wind == 2
         assert to_sequence == min(30 + die, 39)
 
 
-def test_catchup_move_mid_band_is_1d6_plus_1():
-    # from 20, ordinary 2 -> lands 22, leader 33: gap 11 -> 1d6+1 band
+def test_catchup_move_far_gap_is_capped():
+    # from 10, ordinary 2 -> lands 12, leader 40: gap 28 -> modifier capped at 6
     for _ in range(200):
-        die, to_sequence, band = candyland_roll.catchup_move(20, 2, 33, 65)
-        assert 4 <= die <= 9            # 2 + (2..7)
-        assert band == (9, '1d6+1')
-        assert to_sequence == min(20 + die, 32)
-
-
-def test_catchup_move_far_band_is_1d8_plus_1():
-    # from 10, ordinary 2 -> lands 12, leader 40: gap 28 -> 1d8+1 band
-    for _ in range(200):
-        die, to_sequence, band = candyland_roll.catchup_move(10, 2, 40, 65)
-        assert 4 <= die <= 11           # 2 + (2..9)
-        assert band == (13, '1d8+1')
+        die, to_sequence, second_wind = candyland_roll.catchup_move(10, 2, 40, 65)
+        assert 9 <= die <= 12           # 2 + (6 + 1..4)
+        assert second_wind == 6
         assert to_sequence == 10 + die  # far below leader - 1, unclamped
+
+
+def test_catchup_move_end_gap_never_worsens_as_starting_gap_grows():
+    # best/worst/avg end gap after the second wind must be monotonically
+    # non-decreasing as the starting gap grows - no band-edge inversions.
+    prev = None
+    for gap in range(5, 46):
+        modifier = candyland_roll.catchup_modifier(gap)
+        ends = [max(1, gap - (roll + modifier)) for roll in range(1, 5)]
+        current = (min(ends), max(ends), sum(ends) / len(ends))
+        if prev is not None:
+            assert all(c >= p for c, p in zip(current, prev)), gap
+        prev = current
 
 
 def test_catchup_move_never_lands_level_with_or_past_the_leader():

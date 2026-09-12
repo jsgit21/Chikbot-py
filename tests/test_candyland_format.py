@@ -28,14 +28,13 @@ def test_roll_announcement_modifier_tag():
 
 def test_roll_announcement_second_wind_composes_with_modifier():
     plain = candyland_format.roll_announcement(
-        '@Reds', 'RED', '@Nick', 3, 6, 'ART', extra_die=True,
-        catchup_band=(9, '1d6+1'), leader_label='BBC',
+        '@Reds', 'RED', '@Nick', 3, 6, 'ART', second_wind=2, leader_label='BBC',
     )
     assert 'second wind' in plain
 
     with_mod = candyland_format.roll_announcement(
         '@Reds', 'RED', '@Nick', 3, 6, 'ART', modifier_name='Advantage',
-        extra_die=True, catchup_band=(9, '1d6+1'), leader_label='BBC',
+        second_wind=2, leader_label='BBC',
     )
     assert 'Advantage' in with_mod
     assert 'second wind' in with_mod
@@ -45,11 +44,11 @@ def test_roll_announcement_second_wind_composes_with_modifier():
 def test_roll_announcement_second_wind_line_when_not_clamped():
     result = candyland_format.roll_announcement(
         '@Reds', 'RED', '@Nick', 12, 8, 'ART', new_thread_id=900,
-        extra_die=True, catchup_band=(9, '1d6+1'), leader_label='BBC',
+        second_wind=2, leader_label='BBC',
     )
 
     assert 'progress BBC is making' in result
-    assert '1d6+1' in result
+    assert '1d4+2' in result
     assert 'second wind' in result
     assert 'blocked the way' not in result
     assert 'Board' not in result
@@ -60,18 +59,18 @@ def test_roll_announcement_second_wind_line_when_not_clamped():
 def test_roll_announcement_second_wind_line_when_clamped_to_the_leader():
     result = candyland_format.roll_announcement(
         '@Reds', 'RED', '@Nick', 12, 10, 'ART',
-        extra_die=True, catchup_band=(13, '1d8+1'), clamped_at=20, leader_label='BBC',
+        second_wind=6, clamped_at=20, leader_label='BBC',
     )
 
     assert 'progress BBC is making' in result
     assert "on the leader's tail at tile 20" in result
     assert 'blocked the way ahead' in result
-    assert '1d8+1' in result
+    assert '1d4+6' in result
 
 
 def test_roll_announcement_second_wind_line_falls_back_without_a_leader_label():
     result = candyland_format.roll_announcement(
-        '@Reds', 'RED', '@Nick', 12, 8, 'ART', extra_die=True, catchup_band=(9, '1d6+1'),
+        '@Reds', 'RED', '@Nick', 12, 8, 'ART', second_wind=2,
     )
 
     assert 'progress the leader is making' in result
@@ -98,11 +97,11 @@ def test_roll_announcement_catchup_declined_falls_back_without_a_leader_label():
 
 
 def test_roll_announcement_catchup_declined_is_ignored_when_a_second_wind_fired():
-    # extra_die + catchup_band takes priority; catchup_declined should never be
-    # true alongside them, but the second wind line wins if it is.
+    # second_wind takes priority; catchup_declined should never be true
+    # alongside it, but the second wind line wins if it is.
     result = candyland_format.roll_announcement(
-        '@Reds', 'RED', '@Nick', 12, 8, 'ART', extra_die=True,
-        catchup_band=(9, '1d6+1'), catchup_declined=True, leader_label='BBC',
+        '@Reds', 'RED', '@Nick', 12, 8, 'ART', second_wind=2,
+        catchup_declined=True, leader_label='BBC',
     )
 
     assert 'second wind' in result

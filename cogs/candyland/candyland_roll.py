@@ -62,21 +62,21 @@ def roll_move(from_sequence, board_size, modifier=None):
 
 
 # Distance-scaled doomsday catch-up (event-rules decision 37). `gap` is how many
-# tiles behind the leader's current tile the team's ordinary roll left it. Each
-# band is (minimum gap, bonus die sides, label); the first match wins, largest
-# gap first. Below the smallest threshold there is no bonus die.
-CATCHUP_BANDS = (
-    (13, 8, '1d8+1'),
-    (9, 6, '1d6+1'),
-    (5, 4, '1d4+1'),
-)
+# tiles behind the leader's current tile the team's ordinary roll left it.
+# Below CATCHUP_MIN_GAP there is no bonus die. From there the bonus is always
+# 1d4, plus a flat modifier that rises by one for every CATCHUP_STEP tiles of
+# gap, capped at CATCHUP_MAX_MODIFIER so a genuine blowout still gets help
+# without turning back into the teleport decision 37 replaced.
+CATCHUP_MIN_GAP = 5
+CATCHUP_STEP = 3
+CATCHUP_MAX_MODIFIER = 6
 
 
-def _catchup_band(gap):
-    for threshold, sides, label in CATCHUP_BANDS:
-        if gap >= threshold:
-            return threshold, sides, label
-    return None
+def catchup_modifier(gap):
+    """The flat modifier on the second-wind 1d4, or None below the threshold."""
+    if gap < CATCHUP_MIN_GAP:
+        return None
+    return min(1 + (gap - CATCHUP_MIN_GAP) // CATCHUP_STEP, CATCHUP_MAX_MODIFIER)
 
 
 def catchup_move(from_sequence, ordinary_die, leader_tile, board_size):
@@ -86,21 +86,21 @@ def catchup_move(from_sequence, ordinary_die, leader_tile, board_size):
     the team's first roll since it, and the named leader is on a higher tile
     (leader_tile is the leader's current tile).
 
-    gap = leader_tile minus where the ordinary roll landed. Below 5 there is no
-    catch-up - the ordinary roll stands. From 5 up the team rolls one scaled
-    bonus die (1d4+1 / 1d6+1 / 1d8+1 by band) on top of the ordinary roll and
-    moves again, clamped to leader_tile - 1: one tile behind the leader, never
-    level, never past. The board end also clamps.
+    gap = leader_tile minus where the ordinary roll landed. Below CATCHUP_MIN_GAP
+    there is no catch-up - the ordinary roll stands. From there the team rolls
+    one 1d4 plus the scaled modifier (see catchup_modifier) on top of the
+    ordinary roll and moves again, clamped to leader_tile - 1: one tile behind
+    the leader, never level, never past. The board end also clamps.
 
-    Returns (die, to_sequence, band). band is None when no bonus fired, else
-    (threshold, label) for the announcement. die is the ordinary roll unchanged
-    when band is None, else the ordinary roll plus the scaled bonus die.
+    Returns (die, to_sequence, second_wind). second_wind is None when no bonus
+    fired, else the modifier that was added (for the announcement). die is the
+    ordinary roll unchanged when second_wind is None, else the ordinary roll
+    plus the scaled bonus die.
     """
     ordinary_landing = min(from_sequence + ordinary_die, board_size)
-    band = _catchup_band(leader_tile - ordinary_landing)
-    if band is None:
+    modifier = catchup_modifier(leader_tile - ordinary_landing)
+    if modifier is None:
         return ordinary_die, ordinary_landing, None
-    threshold, sides, label = band
-    die = ordinary_die + random.randint(1, sides) + 1
+    die = ordinary_die + random.randint(1, 4) + modifier
     to_sequence = min(from_sequence + die, board_size, leader_tile - 1)
-    return die, to_sequence, (threshold, label)
+    return die, to_sequence, modifier

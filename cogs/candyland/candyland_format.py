@@ -13,19 +13,20 @@ def header(team_label, subtext):
 
 def roll_announcement(team_mention, team_label, author_mention, from_sequence,
                       die, dice_art, new_thread_id=None, modifier_name=None,
-                      final=False, extra_die=False, clamped_at=None,
-                      catchup_band=None, leader_label=None,
-                      catchup_declined=False):
-    # extra_die / catchup_band / clamped_at / leader_label are the doomsday
-    # "second wind": a distance-scaled bonus die folded into this roll
-    # (catchup_band is (threshold, die_label), only the label is shown), the
-    # leader whose lead prompted it, and the tile it stopped on when the bonus
-    # would have caught the leader. They compose into the ordinary roll message;
-    # a catch-up roll has no announcement of its own.
+                      final=False, second_wind=None, clamped_at=None,
+                      leader_label=None, catchup_declined=False):
+    # second_wind / clamped_at / leader_label are the doomsday "second wind": a
+    # distance-scaled bonus die folded into this roll (second_wind is the flat
+    # modifier on the 1d4, rendered as 1d4+N), the leader whose lead prompted
+    # it, and the tile it stopped on when the bonus would have caught the
+    # leader. They compose into the ordinary roll message; a catch-up roll has
+    # no announcement of its own.
     #
     # catchup_declined is the team's first roll after the reveal when it was
     # checked for a second wind but the ordinary roll already closed the gap
-    # (gap < 5) - no bonus die, but worth telling the team they're close.
+    # (gap < CATCHUP_MIN_GAP) - no bonus die, but worth telling the team
+    # they're close.
+    extra_die = second_wind is not None
     if modifier_name and extra_die:
         mod_tag = f' _(with {modifier_name} and a second wind)_'
     elif extra_die:
@@ -43,8 +44,8 @@ def roll_announcement(team_mention, team_label, author_mention, from_sequence,
     if final:
         lines.append('-# 🏁 This is the **final tile**.')
     else:
-        if extra_die and catchup_band is not None:
-            label = catchup_band[1]
+        if extra_die:
+            label = f'1d4+{second_wind}'
             leader = leader_label or 'the leader'
             line = (
                 f'-# 🏁 Seeing how much progress {leader} is making has given '
