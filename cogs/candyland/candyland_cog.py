@@ -587,13 +587,25 @@ class Candyland(commands.Cog):
         from_sequence = state['current_sequence']
 
         revealed = event['board2_revealed_at'] is not None
-        crossed = revealed and await asyncio.to_thread(
-            database.team_has_crossed_to_board2, team['id']
-        )
-        teleporting = (revealed and not crossed
-                       and from_sequence <= candyland_board.BOARD1_SIZE)
         board_size = (candyland_board.TOTAL_TILES if revealed
                       else candyland_board.BOARD1_SIZE)
+
+        # Post-reveal catch-up (event-rules decision 37): on a team's FIRST roll
+        # after the reveal, a distance-scaled "second wind" die if the ordinary
+        # roll still leaves it 5+ tiles behind the named leader's current tile.
+        # Only the leader gates it; checked once, on the first roll only.
+        leader_tile = None
+        leader_label = None
+        if revealed and not await asyncio.to_thread(
+            database.team_has_rolled_since_reveal,
+            team['id'], event['board2_revealed_at'],
+        ):
+            leader = await asyncio.to_thread(database.get_board2_leader, event['id'])
+            if (leader is not None and leader['team_id'] != team['id']
+                    and leader['current_sequence'] > from_sequence):
+                leader_tile = leader['current_sequence']
+                leader_label = leader['acronym'] or leader['name']
+        catchup_eligible = leader_tile is not None
 
         team_role = ctx.guild.get_role(team['role_id'])
         if team_role is None:
@@ -669,70 +681,25 @@ class Candyland(commands.Cog):
             )
             return
 
-        if teleporting:
-            to_sequence = candyland_board.BOARD1_SIZE + 1
-            movement_id = await asyncio.to_thread(
-                database.teleport_team_to_board2,
-                team['id'], ctx.author.id, state['last_movement_id'],
-            )
-            if movement_id is None:
-                await ctx.followup.send(
-                    '-# ⚠ Another roll for your team just landed first - check the '
-                    'board and try again.'
-                )
-                return
-
-            announcement = await ctx.channel.send(
-                candyland_format.teleport_announcement(
-                    team_role.mention, team_label, ctx.author.mention,
-                    candyland_board.BOARD1_SIZE, to_sequence,
-                ),
-                allowed_mentions=discord.AllowedMentions(users=False, roles=False),
-            )
-            await ctx.followup.send(
-                'Your team was pulled forward - please see the board.',
-                ephemeral=True,
-            )
-
-            result = await candyland_ceremony.run_post_roll_ceremony(
-                self.bot, database, team, team_role, self.mainbingo_channel_id,
-                to_sequence, thread_row,
-            )
-            if result['new_thread_id']:
-                try:
-                    await announcement.edit(
-                        content=candyland_format.teleport_announcement(
-                            team_role.mention, team_label, ctx.author.mention,
-                            candyland_board.BOARD1_SIZE, to_sequence,
-                            new_thread_id=result['new_thread_id'],
-                        ),
-                        allowed_mentions=discord.AllowedMentions(users=False,
-                                                                roles=False),
-                    )
-                except discord.HTTPException:
-                    pass
-
-            await asyncio.to_thread(
-                database.write_audit, ctx.author.id, 'board_transition',
-                {'event_slug': event['slug'], 'team_id': team['id'],
-                 'from': from_sequence, 'to': to_sequence,
-                 'movement_id': movement_id,
-                 'ceremony': result['steps'],
-                 'ceremony_failures': result['failures']},
-            )
-            if result['failures']:
-                await candyland_ceremony.alert_mods(
-                    self.bot, self.moderator_channel_id, team, 0, from_sequence,
-                    to_sequence, result,
-                )
-            return
-
         die, to_sequence = candyland_roll.roll_move(
             from_sequence, board_size, modifier
         )
+        extra_die = False
+        clamped_at = None
+        second_wind = None
+        if catchup_eligible:
+            ordinary_die = die
+            die, to_sequence, second_wind = candyland_roll.catchup_move(
+                from_sequence, ordinary_die, leader_tile, board_size,
+            )
+            extra_die = second_wind is not None
+            if extra_die and from_sequence + die > to_sequence:
+                clamped_at = to_sequence
+        catchup_declined = catchup_eligible and not extra_die
 
+        writer = database.catchup_roll_team if extra_die else database.advance_team_by_roll
         movement_id = await asyncio.to_thread(
-            database.advance_team_by_roll,
+            writer,
             team['id'], die, from_sequence, to_sequence,
             thread_row['thread_id'], ctx.author.id, state['last_movement_id'],
         )
@@ -752,6 +719,8 @@ class Candyland(commands.Cog):
             candyland_format.roll_announcement(
                 team_role.mention, team_label, ctx.author.mention, from_sequence,
                 die, art, modifier_name=modifier_name, final=final,
+                second_wind=second_wind, clamped_at=clamped_at,
+                leader_label=leader_label, catchup_declined=catchup_declined,
             ),
             allowed_mentions=discord.AllowedMentions(users=False, roles=False),
         )
@@ -769,16 +738,20 @@ class Candyland(commands.Cog):
                         team_role.mention, team_label, ctx.author.mention,
                         from_sequence, die, art, new_thread_id=result['new_thread_id'],
                         modifier_name=modifier_name, final=final,
+                        second_wind=second_wind, clamped_at=clamped_at,
+                        leader_label=leader_label, catchup_declined=catchup_declined,
                     ),
                     allowed_mentions=discord.AllowedMentions(users=False, roles=False),
                 )
             except discord.HTTPException:
                 pass
         await asyncio.to_thread(
-            database.write_audit, ctx.author.id, 'roll',
+            database.write_audit, ctx.author.id,
+            'catchup_roll' if extra_die else 'roll',
             {'event_slug': event['slug'], 'team_id': team['id'], 'die': die,
              'from': from_sequence, 'to': to_sequence, 'movement_id': movement_id,
-             'modifier': modifier,
+             'modifier': modifier, 'clamped': clamped_at, 'second_wind': second_wind,
+             'catchup_declined': catchup_declined,
              'ceremony': result['steps'], 'ceremony_failures': result['failures']},
         )
 

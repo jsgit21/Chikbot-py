@@ -13,8 +13,28 @@ def header(team_label, subtext):
 
 def roll_announcement(team_mention, team_label, author_mention, from_sequence,
                       die, dice_art, new_thread_id=None, modifier_name=None,
-                      final=False):
-    mod_tag = f' _(with {modifier_name})_' if modifier_name else ''
+                      final=False, second_wind=None, clamped_at=None,
+                      leader_label=None, catchup_declined=False):
+    # second_wind / clamped_at / leader_label are the doomsday "second wind": a
+    # distance-scaled bonus die folded into this roll (second_wind is the flat
+    # modifier on the 1d4, rendered as 1d4+N), the leader whose lead prompted
+    # it, and the tile it stopped on when the bonus would have caught the
+    # leader. They compose into the ordinary roll message; a catch-up roll has
+    # no announcement of its own.
+    #
+    # catchup_declined is the team's first roll after the reveal when it was
+    # checked for a second wind but the ordinary roll already closed the gap
+    # (gap < CATCHUP_MIN_GAP) - no bonus die, but worth telling the team
+    # they're close.
+    extra_die = second_wind is not None
+    if modifier_name and extra_die:
+        mod_tag = f' _(with {modifier_name} and a second wind)_'
+    elif extra_die:
+        mod_tag = ' _(with a second wind)_'
+    elif modifier_name:
+        mod_tag = f' _(with {modifier_name})_'
+    else:
+        mod_tag = ''
     lines = [
         header(team_mention, f'{team_label} has completed Tile {from_sequence}'),
         '',
@@ -23,22 +43,29 @@ def roll_announcement(team_mention, team_label, author_mention, from_sequence,
     ]
     if final:
         lines.append('-# 🏁 This is the **final tile**.')
-    elif new_thread_id is not None:
-        lines.append('')
-        lines.append(f"Your team's next tile is ➡️ <#{new_thread_id}>")
-    return '\n'.join(lines)
-
-
-def teleport_announcement(team_mention, team_label, author_mention, past_tile,
-                          to_sequence, new_thread_id=None):
-    lines = [
-        header(team_mention, f'{team_label} was pulled onto the road past tile {past_tile}'),
-        '',
-        f'{author_mention} pulled **{team_label}** forward to tile {to_sequence}.',
-    ]
-    if new_thread_id is not None:
-        lines.append('')
-        lines.append(f"Your team's next tile is ➡️ <#{new_thread_id}>")
+    else:
+        if extra_die:
+            label = f'1d4+{second_wind}'
+            leader = leader_label or 'the leader'
+            line = (
+                f'-# 🏁 Seeing how much progress {leader} is making has given '
+                f'your team a **{label}** second wind!'
+            )
+            if clamped_at is not None:
+                line += (
+                    f" Your team pulls right up on the leader's tail at tile "
+                    f'{clamped_at}, but they blocked the way ahead!'
+                )
+            lines.append(line)
+        elif catchup_declined:
+            leader = leader_label or 'the leader'
+            lines.append(
+                f'-# 🏁 Your team is going just as hard as {leader} - hot on '
+                'their tail!'
+            )
+        if new_thread_id is not None:
+            lines.append('')
+            lines.append(f"Your team's next tile is ➡️ <#{new_thread_id}>")
     return '\n'.join(lines)
 
 

@@ -75,8 +75,11 @@ create table candyland.tile_thread (
 create table candyland.movement (
   id int unsigned primary key auto_increment,
   team_id int unsigned not null,
-  kind enum('roll','adjustment','board_transition') not null,
-  roll_total tinyint unsigned,              -- roll result, 2..5 normally, up to 10 with a Double Down bounty; null for adjustment/board_transition. start/end are from_sequence/to_sequence
+  -- 'catchup_roll' is a roll. If you add another kind that represents a completed
+  -- roll, update get_pending_modifier AND get_last_bounty_since_roll, which both
+  -- anchor on "the team's last roll".
+  kind enum('roll','adjustment','board_transition','catchup_roll') not null,
+  roll_total tinyint unsigned,              -- roll result, 2..5 normally, up to 20 with a Double Down bounty plus the doomsday catch-up die; null for adjustment/board_transition. start/end are from_sequence/to_sequence
   from_sequence int not null,
   to_sequence int not null,
   proof_thread_id bigint unsigned,          -- the thread whose images justified this move

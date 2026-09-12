@@ -133,6 +133,38 @@ def get_team_by_role(event_id, role_id, testdb=None):
     return cursor.fetchone()
 
 
+def get_board2_leader(event_id, testdb=None):
+    # The team named in /candyland doomsday - the one team with a
+    # 'board_transition' movement row (mark_board2_leader guards it to one per
+    # team). Its current tile gates the post-reveal catch-up.
+    #
+    # from_sequence = to_sequence narrows this to the leader marker row itself
+    # (mark_board2_leader writes 42 -> 42): any pre-existing PR #36 teleport
+    # rows are from < to and are excluded. order by id takes the first marker
+    # if more than one ever exists.
+    db = testdb if testdb else connection.create_connection()
+    cursor = db.cursor(pymysql.cursors.DictCursor)
+
+    query = """
+        select t.id as team_id,
+               t.name,
+               t.acronym,
+               s.current_sequence
+          from team t
+          join movement m
+            on m.team_id = t.id
+           and m.kind = 'board_transition'
+           and m.from_sequence = m.to_sequence
+          join team_state s
+            on s.team_id = t.id
+         where t.event_id = %s
+         order by m.id
+         limit 1
+    """
+    cursor.execute(query, (event_id,))
+    return cursor.fetchone()
+
+
 def get_team_state(team_id, testdb=None):
     db = testdb if testdb else connection.create_connection()
     cursor = db.cursor(pymysql.cursors.DictCursor)
@@ -498,6 +530,35 @@ def team_has_crossed_to_board2(team_id, testdb=None):
     return cursor.fetchone() is not None
 
 
+def team_has_rolled_since_reveal(team_id, revealed_at, testdb=None):
+    # The doomsday catch-up is checked only on a team's first roll after the
+    # reveal (event-rules decision 37). If the team already has a roll or
+    # catchup_roll movement dated at or after board2_revealed_at, that first
+    # roll has happened and no extra die is offered - the catch-up is not
+    # stored.
+    #
+    # created_at is second-precision, so >= (not >) is required: a roll landing
+    # in the same second as the reveal must count as "since the reveal" once
+    # written, or every later roll that second-ties the reveal would also read
+    # as "first roll" and stack another catch-up die. The accepted trade-off
+    # (event-rules decision 37) is the other direction instead: a team whose
+    # roll and the reveal land in the same second may be denied its one
+    # catch-up, once, per event.
+    db = testdb if testdb else connection.create_connection()
+    cursor = db.cursor()
+
+    query = """
+        select 1
+          from movement
+         where team_id = %s
+           and kind in ('roll', 'catchup_roll')
+           and created_at >= %s
+         limit 1
+    """
+    cursor.execute(query, (team_id, revealed_at))
+    return cursor.fetchone() is not None
+
+
 def set_board2_revealed(event_id, testdb=None):
     # /candyland doomsday: flip the reveal once. The `board2_revealed_at is null`
     # predicate makes a second call a no-op; rowcount tells the caller whether
@@ -565,11 +626,13 @@ def mark_board2_leader(team_id, invoked_by_user_id, expected_movement_id,
         raise
 
 
-def teleport_team_to_board2(team_id, invoked_by_user_id, expected_movement_id,
-                            testdb=None):
-    # A trailing team's first /candyland roll after the reveal: no dice, straight
-    # to the first Board 2 tile. board_transition row from wherever it stood to
-    # BOARD1_SIZE + 1. Same lock discipline as advance_team_by_roll.
+def catchup_roll_team(team_id, roll_total, from_sequence, to_sequence,
+                      proof_thread_id, invoked_by_user_id,
+                      expected_movement_id, testdb=None):
+    # A trailing team's next /candyland roll after the reveal: a real dice move
+    # (the roll plus the doomsday extra 1d4+1, already clamped by the cog to the
+    # team ahead) written as a 'catchup_roll' row. Same lock discipline and
+    # arguments as advance_team_by_roll; only the kind and note differ.
     db = testdb if testdb else connection.create_connection()
     db.begin()
     try:
@@ -588,15 +651,14 @@ def teleport_team_to_board2(team_id, invoked_by_user_id, expected_movement_id,
             db.rollback()
             return None
 
-        locked_movement_id, from_sequence = locked
-        if locked_movement_id != expected_movement_id:
+        locked_movement_id, locked_sequence = locked
+        if locked_movement_id != expected_movement_id or locked_sequence != from_sequence:
             db.rollback()
             return None
 
         movement_id = record_movement(
-            team_id, 'board_transition', None, from_sequence,
-            candyland_board.BOARD1_SIZE + 1, None, invoked_by_user_id,
-            'board 2 transition - trailing teleport', testdb=db,
+            team_id, 'catchup_roll', roll_total, from_sequence, to_sequence,
+            proof_thread_id, invoked_by_user_id, 'doomsday catch-up roll', testdb=db,
         )
         refold_team_state(team_id, testdb=db)
         db.commit()
@@ -607,6 +669,9 @@ def teleport_team_to_board2(team_id, invoked_by_user_id, expected_movement_id,
 
 
 def get_pending_modifier(team_id, testdb=None):
+    # A 'catchup_roll' counts as the team's last roll here, same as in
+    # get_last_bounty_since_roll: a modifier consumed by a catch-up roll must not
+    # stay armed for the roll after it.
     db = testdb if testdb else connection.create_connection()
     cursor = db.cursor()
 
@@ -619,7 +684,7 @@ def get_pending_modifier(team_id, testdb=None):
            and bu.movement_id is not null
            and bu.movement_id > coalesce(
                  (select max(m.id) from movement m
-                   where m.team_id = %s and m.kind = 'roll'), 0)
+                   where m.team_id = %s and m.kind in ('roll', 'catchup_roll')), 0)
          order by bu.movement_id desc
          limit 1
     """
@@ -667,6 +732,7 @@ def get_last_bounty_since_roll(team_id, testdb=None):
     # The bounty_key of the team's most recent bounty_use since its last roll,
     # or None if it has rolled since (or never used one). Drives the sequencing
     # gate in the cog: a team may not chain bounties across one tile.
+    # A 'catchup_roll' counts as a roll here, same as in get_pending_modifier.
     db = testdb if testdb else connection.create_connection()
     cursor = db.cursor()
 
@@ -677,7 +743,7 @@ def get_last_bounty_since_roll(team_id, testdb=None):
            and bu.movement_id is not null
            and bu.movement_id > coalesce(
                  (select max(m.id) from movement m
-                   where m.team_id = %s and m.kind = 'roll'), 0)
+                   where m.team_id = %s and m.kind in ('roll', 'catchup_roll')), 0)
          order by bu.movement_id desc
          limit 1
     """
