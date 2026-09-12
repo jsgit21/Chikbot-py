@@ -50,6 +50,8 @@ create table candyland.team (
   acronym varchar(16) null,                 -- short tag; render falls back to name when null
   role_id bigint unsigned not null,         -- the Discord role that authorises /candyland roll
   forum_channel_id bigint unsigned not null,-- where this team's per-tile threads are created
+  voice_channel_id bigint unsigned null,    -- open team voice channel; null for teams created before this column existed
+  chat_channel_id bigint unsigned null,     -- private team text channel; null for teams created before this column existed
   sort_order int not null default 0,
   created_at timestamp default current_timestamp,
   constraint fk_team_event foreign key (event_id)

@@ -92,6 +92,36 @@ def test_register_team_is_idempotent(test_db, setup_candyland_tables):
     assert cursor.fetchone()['n'] == 1
 
 
+def test_register_team_stores_voice_and_chat_channel_ids(test_db, setup_candyland_tables):
+    event_id = candyland_methods.create_event('cgl-2026', None, None, testdb=test_db)
+
+    team_id = candyland_methods.register_team(
+        event_id, 'Reds', 111, 222, 0,
+        voice_channel_id=333, chat_channel_id=444, testdb=test_db,
+    )
+
+    teams = candyland_methods.get_teams(event_id, testdb=test_db)
+    assert teams[0]['voice_channel_id'] == 333
+    assert teams[0]['chat_channel_id'] == 444
+
+    team = candyland_methods.get_team_by_role(event_id, 111, testdb=test_db)
+    assert team['id'] == team_id
+    assert team['voice_channel_id'] == 333
+    assert team['chat_channel_id'] == 444
+
+
+def test_register_team_without_voice_and_chat_ids_is_null(test_db, setup_candyland_tables):
+    # Matches a pre-migration team row: forum_channel_id is required, but
+    # voice/chat were never provisioned for it and must round-trip as NULL.
+    event_id = candyland_methods.create_event('cgl-2026', None, None, testdb=test_db)
+
+    candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
+
+    teams = candyland_methods.get_teams(event_id, testdb=test_db)
+    assert teams[0]['voice_channel_id'] is None
+    assert teams[0]['chat_channel_id'] is None
+
+
 def test_replay_folds_to_last_movement():
     movements = [
         {'to_sequence': 4},
