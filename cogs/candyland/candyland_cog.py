@@ -15,8 +15,9 @@ movement history.
 Phase C wave 1: /candyland bounty (take one of six bounties against the current
   tile instead of rolling; once per bounty per board, tracked in
   candyland.bounty_use) and /candyland bounties (list your team's pool, used
-  ones struck through). Phase C waves 2-3 (not here): the doomsday reveal, the
-  board-1->2 transition, a thread-repair command, /candyland end.
+  ones struck through). Phase C wave 2: the doomsday reveal and the board-1->2
+  transition (PR #36). Phase C wave 3: /candyland end (mark a live event ended).
+  Phase F (not here): tile import.
 """
 
 import asyncio
@@ -533,6 +534,38 @@ class Candyland(commands.Cog):
         if cer['failures']:
             msg += ' Ceremony fell short - see the mod channel.'
         await ctx.followup.send(msg, ephemeral=True)
+
+    @commands.check(is_moderator)
+    @candyland.command(name='end',
+                       description='Mod tool: mark a live event as ended')
+    async def end(self, ctx,
+                  event_slug: discord.Option(str, 'Event slug')):
+        if ctx.channel.id != self.moderator_channel_id:
+            await ctx.respond(
+                f'`/candyland end` only works in <#{self.moderator_channel_id}>.',
+            )
+            return
+
+        event = await asyncio.to_thread(database.get_event, event_slug)
+        if event is None:
+            await ctx.respond(f'No candyland event with slug **{event_slug}**.')
+            return
+        if event['status'] != 'live':
+            await ctx.respond(
+                f'**{event_slug}** is **{event["status"]}**, not `live`. '
+                f'Only a live event can be ended.'
+            )
+            return
+
+        await asyncio.to_thread(database.set_event_status, event_slug, 'ended')
+        await asyncio.to_thread(
+            database.write_audit, ctx.author.id, 'end',
+            {'event_slug': event_slug, 'event_id': event['id']},
+        )
+        await ctx.respond(
+            f'**{event_slug}** is now **ended**. `/candyland roll` and the bounty '
+            f'commands will refuse; `/candyland status` still works.'
+        )
     # === END MODERATOR COMMANDS ===
 
     # === PLAYER COMMANDS (any team-role holder) ===

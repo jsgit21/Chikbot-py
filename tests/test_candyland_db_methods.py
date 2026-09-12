@@ -128,6 +128,17 @@ def test_get_active_event_returns_the_single_live_row(test_db, setup_candyland_t
     assert active['slug'] == 'now'
 
 
+def test_ending_a_live_event_removes_it_from_active(test_db, setup_candyland_tables):
+    candyland_methods.create_event('e', None, None, testdb=test_db)
+    candyland_methods.set_event_status('e', 'live', testdb=test_db)
+    assert candyland_methods.get_active_event(testdb=test_db)['slug'] == 'e'
+
+    candyland_methods.set_event_status('e', 'ended', testdb=test_db)
+
+    assert candyland_methods.get_event('e', testdb=test_db)['status'] == 'ended'
+    assert candyland_methods.get_active_event(testdb=test_db) is None
+
+
 def test_advance_team_by_roll_appends_and_folds(test_db, setup_candyland_tables):
     event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
     team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
