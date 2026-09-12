@@ -1,8 +1,9 @@
 -- Replace the doomsday teleport with a clamped extra-die catch-up roll.
 --
 -- Adds the 'catchup_roll' value to movement.kind. The post-reveal catch-up (one
--- extra 1d4+1 on a trailing team's next roll, clamped to the team ahead) writes
--- a real dice movement row, so it needs its own kind distinct from 'roll'.
+-- extra 1d4 plus a modifier that scales with the gap, on a trailing team's first
+-- roll after the reveal, clamped to one tile behind the leader) writes a real
+-- dice movement row, so it needs its own kind distinct from 'roll'.
 --
 -- Run against BOTH schemas, e.g.:
 --   mysql candyland      < 2026-09-08_catchup_roll.sql
