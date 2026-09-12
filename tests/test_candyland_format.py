@@ -77,6 +77,38 @@ def test_roll_announcement_second_wind_line_falls_back_without_a_leader_label():
     assert 'progress the leader is making' in result
 
 
+def test_roll_announcement_catchup_declined_line():
+    result = candyland_format.roll_announcement(
+        '@Reds', 'RED', '@Nick', 12, 8, 'ART', new_thread_id=900,
+        catchup_declined=True, leader_label='BBC',
+    )
+
+    assert 'going just as hard as BBC' in result
+    assert 'hot on' in result
+    assert 'second wind' not in result
+    assert "Your team's next tile is ➡️ <#900>" in result
+
+
+def test_roll_announcement_catchup_declined_falls_back_without_a_leader_label():
+    result = candyland_format.roll_announcement(
+        '@Reds', 'RED', '@Nick', 12, 8, 'ART', catchup_declined=True,
+    )
+
+    assert 'going just as hard as the leader' in result
+
+
+def test_roll_announcement_catchup_declined_is_ignored_when_a_second_wind_fired():
+    # extra_die + catchup_band takes priority; catchup_declined should never be
+    # true alongside them, but the second wind line wins if it is.
+    result = candyland_format.roll_announcement(
+        '@Reds', 'RED', '@Nick', 12, 8, 'ART', extra_die=True,
+        catchup_band=(9, '1d6+1'), catchup_declined=True, leader_label='BBC',
+    )
+
+    assert 'second wind' in result
+    assert 'going just as hard' not in result
+
+
 def test_roll_announcement_final_tile_has_no_next_tile_line():
     result = candyland_format.roll_announcement(
         '@Reds', 'RED', '@Nick', 40, 5, 'ART', new_thread_id=900, final=True,

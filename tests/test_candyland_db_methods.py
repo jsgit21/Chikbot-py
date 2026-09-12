@@ -741,6 +741,35 @@ def test_get_board2_leader_returns_the_marked_team_and_tile(test_db, setup_candy
     assert row['current_sequence'] == candyland_board.BOARD1_SIZE
 
 
+def test_get_board2_leader_ignores_a_stray_teleport_style_board_transition_row(
+    test_db, setup_candyland_tables
+):
+    # A pre-existing PR #36 teleport row (from < to) must never be picked as
+    # the leader marker (from == to), even if it sorts before the real one.
+    event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
+    leader_id = candyland_methods.register_team(
+        event_id, 'Reds', 111, 222, 0, acronym='RED', testdb=test_db
+    )
+    trailing_id = candyland_methods.register_team(
+        event_id, 'Blues', 333, 444, 1, acronym='BLU', testdb=test_db
+    )
+    leader_state = _seed_team_to(test_db, leader_id, candyland_board.BOARD1_SIZE)
+    _seed_team_to(test_db, trailing_id, 12)
+
+    candyland_methods.record_movement(
+        trailing_id, 'board_transition', None, 12, candyland_board.BOARD1_SIZE + 1,
+        None, None, 'board 2 transition - trailing teleport', testdb=test_db,
+    )
+    candyland_methods.refold_team_state(trailing_id, testdb=test_db)
+
+    candyland_methods.mark_board2_leader(
+        leader_id, 7, leader_state['last_movement_id'], testdb=test_db
+    )
+
+    row = candyland_methods.get_board2_leader(event_id, testdb=test_db)
+    assert row['team_id'] == leader_id
+
+
 def test_catchup_roll_team_from_midboard_writes_row_and_folds(test_db, setup_candyland_tables):
     event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
     team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
@@ -800,6 +829,38 @@ def test_team_has_rolled_since_reveal(test_db, setup_candyland_tables):
     candyland_methods.advance_team_by_roll(
         team_id, 4, 12, 16, 900, 7, state['last_movement_id'], testdb=test_db
     )
+    assert candyland_methods.team_has_rolled_since_reveal(
+        team_id, revealed_at, testdb=test_db
+    ) is True
+
+
+def test_team_has_rolled_since_reveal_counts_a_roll_in_the_same_second_as_the_reveal(
+    test_db, setup_candyland_tables
+):
+    # created_at is second-precision. A roll written in the same second as the
+    # reveal must count as "since the reveal" (>=, not >), or the team's very
+    # next roll would still read as its first and stack another catch-up die.
+    event_id = candyland_methods.create_event('e', None, None, testdb=test_db)
+    team_id = candyland_methods.register_team(event_id, 'Reds', 111, 222, 0, testdb=test_db)
+    state = _seed_team_to(test_db, team_id, 12)
+
+    same_second = '2020-01-01 00:00:00'
+    cursor = test_db.cursor()
+    cursor.execute(
+        f"update {TEST_DATABASE}.event set board2_revealed_at = %s where id = %s",
+        (same_second, event_id),
+    )
+    revealed_at = candyland_methods.get_event('e', testdb=test_db)['board2_revealed_at']
+
+    candyland_methods.advance_team_by_roll(
+        team_id, 4, 12, 16, 900, 7, state['last_movement_id'], testdb=test_db
+    )
+    cursor.execute(
+        f"update {TEST_DATABASE}.movement set created_at = %s "
+        f"where team_id = %s order by id desc limit 1",
+        (same_second, team_id),
+    )
+
     assert candyland_methods.team_has_rolled_since_reveal(
         team_id, revealed_at, testdb=test_db
     ) is True

@@ -695,6 +695,7 @@ class Candyland(commands.Cog):
             extra_die = catchup_band is not None
             if extra_die and from_sequence + die > to_sequence:
                 clamped_at = to_sequence
+        catchup_declined = catchup_eligible and not extra_die
 
         writer = database.catchup_roll_team if extra_die else database.advance_team_by_roll
         movement_id = await asyncio.to_thread(
@@ -719,7 +720,7 @@ class Candyland(commands.Cog):
                 team_role.mention, team_label, ctx.author.mention, from_sequence,
                 die, art, modifier_name=modifier_name, final=final,
                 extra_die=extra_die, clamped_at=clamped_at, catchup_band=catchup_band,
-                leader_label=leader_label,
+                leader_label=leader_label, catchup_declined=catchup_declined,
             ),
             allowed_mentions=discord.AllowedMentions(users=False, roles=False),
         )
@@ -738,7 +739,7 @@ class Candyland(commands.Cog):
                         from_sequence, die, art, new_thread_id=result['new_thread_id'],
                         modifier_name=modifier_name, final=final,
                         extra_die=extra_die, clamped_at=clamped_at, catchup_band=catchup_band,
-                        leader_label=leader_label,
+                        leader_label=leader_label, catchup_declined=catchup_declined,
                     ),
                     allowed_mentions=discord.AllowedMentions(users=False, roles=False),
                 )
@@ -750,6 +751,7 @@ class Candyland(commands.Cog):
             {'event_slug': event['slug'], 'team_id': team['id'], 'die': die,
              'from': from_sequence, 'to': to_sequence, 'movement_id': movement_id,
              'modifier': modifier, 'clamped': clamped_at, 'catchup_band': catchup_band,
+             'catchup_declined': catchup_declined,
              'ceremony': result['steps'], 'ceremony_failures': result['failures']},
         )
 

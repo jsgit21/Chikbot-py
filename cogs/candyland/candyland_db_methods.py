@@ -136,7 +136,12 @@ def get_team_by_role(event_id, role_id, testdb=None):
 def get_board2_leader(event_id, testdb=None):
     # The team named in /candyland doomsday - the one team with a
     # 'board_transition' movement row (mark_board2_leader guards it to one per
-    # event). Its current tile gates the post-reveal catch-up.
+    # team). Its current tile gates the post-reveal catch-up.
+    #
+    # from_sequence = to_sequence narrows this to the leader marker row itself
+    # (mark_board2_leader writes 42 -> 42): any pre-existing PR #36 teleport
+    # rows are from < to and are excluded. order by id takes the first marker
+    # if more than one ever exists.
     db = testdb if testdb else connection.create_connection()
     cursor = db.cursor(pymysql.cursors.DictCursor)
 
@@ -149,9 +154,11 @@ def get_board2_leader(event_id, testdb=None):
           join movement m
             on m.team_id = t.id
            and m.kind = 'board_transition'
+           and m.from_sequence = m.to_sequence
           join team_state s
             on s.team_id = t.id
          where t.event_id = %s
+         order by m.id
          limit 1
     """
     cursor.execute(query, (event_id,))
@@ -526,8 +533,17 @@ def team_has_crossed_to_board2(team_id, testdb=None):
 def team_has_rolled_since_reveal(team_id, revealed_at, testdb=None):
     # The doomsday catch-up is checked only on a team's first roll after the
     # reveal (event-rules decision 37). If the team already has a roll or
-    # catchup_roll movement dated after board2_revealed_at, that first roll has
-    # happened and no extra die is offered - the catch-up is not stored.
+    # catchup_roll movement dated at or after board2_revealed_at, that first
+    # roll has happened and no extra die is offered - the catch-up is not
+    # stored.
+    #
+    # created_at is second-precision, so >= (not >) is required: a roll landing
+    # in the same second as the reveal must count as "since the reveal" once
+    # written, or every later roll that second-ties the reveal would also read
+    # as "first roll" and stack another catch-up die. The accepted trade-off
+    # (event-rules decision 37) is the other direction instead: a team whose
+    # roll and the reveal land in the same second may be denied its one
+    # catch-up, once, per event.
     db = testdb if testdb else connection.create_connection()
     cursor = db.cursor()
 
@@ -536,7 +552,7 @@ def team_has_rolled_since_reveal(team_id, revealed_at, testdb=None):
           from movement
          where team_id = %s
            and kind in ('roll', 'catchup_roll')
-           and created_at > %s
+           and created_at >= %s
          limit 1
     """
     cursor.execute(query, (team_id, revealed_at))
