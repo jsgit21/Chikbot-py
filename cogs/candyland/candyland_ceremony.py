@@ -45,6 +45,33 @@ def build_team_forum_overwrites(guild, team_role, moderator_role, event_planner_
     }
 
 
+def build_team_text_overwrites(guild, team_role, moderator_role, event_planner_role):
+    """Permission overwrites for a team's private text/chat channel. Same shape as
+    build_team_forum_overwrites minus the forum-only thread flags
+    (create_public_threads, send_messages_in_threads) that don't apply to a plain
+    text channel. @everyone cannot see it; the team posts; mods and event
+    planners moderate; the bot has full control."""
+    member = discord.PermissionOverwrite(
+        view_channel=True, read_message_history=True, send_messages=True,
+        attach_files=True, embed_links=True, add_reactions=True,
+    )
+    staff = discord.PermissionOverwrite(
+        view_channel=True, read_message_history=True, send_messages=True,
+        attach_files=True, embed_links=True, add_reactions=True,
+        manage_threads=True, manage_messages=True,
+    )
+    return {
+        guild.default_role: discord.PermissionOverwrite(view_channel=False),
+        team_role: member,
+        moderator_role: staff,
+        event_planner_role: staff,
+        guild.me: discord.PermissionOverwrite(
+            view_channel=True, read_message_history=True, send_messages=True,
+            manage_threads=True, manage_messages=True, manage_channels=True,
+        ),
+    }
+
+
 async def resolve_channel(bot, channel_id):
     channel = bot.get_channel(channel_id)
     if channel is None:
@@ -157,26 +184,34 @@ async def delete_tile_threads(bot, thread_ids):
     return {'deleted': deleted, 'missing': missing, 'failed': failed}
 
 
-async def delete_team_forums(bot, forum_ids):
-    """Delete each team forum by id. Tolerant of an already-gone channel; refuses
-    anything that is not a ForumChannel. Never touches the parent category."""
+async def delete_team_channels(bot, channel_ids, expected_type):
+    """Delete each team channel by id (forum, voice, or text - pass the
+    discord.py class to enforce as expected_type). Skips a None id without
+    counting it as a failure (pre-migration team rows lacking a voice/chat
+    channel id). Tolerant of an already-gone channel; refuses anything that is
+    not an instance of expected_type. Never touches the parent category."""
     deleted, missing, failed = [], [], []
-    for forum_id in forum_ids:
-        try:
-            channel = await resolve_channel(bot, forum_id)
-        except discord.NotFound:
-            missing.append(forum_id)
+    for channel_id in channel_ids:
+        if channel_id is None:
             continue
-        if not isinstance(channel, discord.ForumChannel):
-            failed.append(f'{forum_id}: not a forum channel ({type(channel).__name__})')
+        try:
+            channel = await resolve_channel(bot, channel_id)
+        except discord.NotFound:
+            missing.append(channel_id)
+            continue
+        if not isinstance(channel, expected_type):
+            failed.append(
+                f'{channel_id}: not a {expected_type.__name__} '
+                f'({type(channel).__name__})'
+            )
             continue
         try:
             await channel.delete(reason=_CLEAR_REASON)
-            deleted.append(forum_id)
+            deleted.append(channel_id)
         except discord.NotFound:
-            missing.append(forum_id)
+            missing.append(channel_id)
         except discord.HTTPException as e:
-            failed.append(f'{forum_id}: {e!r}')
+            failed.append(f'{channel_id}: {e!r}')
     return {'deleted': deleted, 'missing': missing, 'failed': failed}
 
 
