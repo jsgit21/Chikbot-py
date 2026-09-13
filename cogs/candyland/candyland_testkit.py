@@ -22,7 +22,7 @@ from . import candyland_db_methods as database
 
 TEST_EVENT_SLUG = 'candyland-test'
 TEST_CATEGORY_NAME = 'Candyland Test'
-TEST_FORUM_PREFIX = 'candyland-test-'
+TEST_CHANNEL_PREFIX = 'candyland-test-'
 TEST_ROLE_PREFIX = 'Candyland Test '
 
 # Names for up to the cap of 4 teams.
@@ -70,7 +70,8 @@ async def run_setup(cog, ctx, teams_raw, tester2):
     await ctx.defer()
     team_count = _clamp_team_count(teams_raw)
 
-    roles_built, forums_built, teams_built, threads_built = [], [], [], []
+    (roles_built, forums_built, voices_built, chats_built,
+     teams_built, threads_built) = [], [], [], [], [], []
 
     category = discord.utils.get(ctx.guild.categories, name=TEST_CATEGORY_NAME)
     if category is None:
@@ -83,7 +84,9 @@ async def run_setup(cog, ctx, teams_raw, tester2):
     for i in range(team_count):
         name = _TEAM_NAMES[i]
         role_name = f'{TEST_ROLE_PREFIX}{name}'
-        forum_name = f'{TEST_FORUM_PREFIX}{name.lower()}'
+        forum_name = f'{TEST_CHANNEL_PREFIX}{name.lower()}-tiles'
+        voice_name = f'{TEST_CHANNEL_PREFIX}{name.lower()}-voice'
+        chat_name = f'{TEST_CHANNEL_PREFIX}{name.lower()}-chat'
 
         role = discord.utils.get(ctx.guild.roles, name=role_name)
         if role is None:
@@ -107,11 +110,36 @@ async def run_setup(cog, ctx, teams_raw, tester2):
         else:
             forums_built.append((name, 'adopted'))
 
+        voice = discord.utils.get(category.channels, name=voice_name)
+        if voice is None:
+            voice = await ctx.guild.create_voice_channel(
+                name=voice_name, category=category, reason=_REASON,
+            )
+            voices_built.append((name, 'created'))
+        else:
+            voices_built.append((name, 'adopted'))
+
+        chat = discord.utils.get(category.channels, name=chat_name)
+        if chat is None:
+            chat = await ctx.guild.create_text_channel(
+                name=chat_name, category=category,
+                overwrites=candyland_ceremony.build_team_text_overwrites(
+                    ctx.guild, role, moderator_role, event_planner_role
+                ),
+                reason=_REASON,
+            )
+            chats_built.append((name, 'created'))
+        else:
+            chats_built.append((name, 'adopted'))
+
         for member in (ctx.author, tester2):
             if member is not None and role not in member.roles:
                 await member.add_roles(role, reason=_REASON)
 
-        slots.append({'name': name, 'sort_order': i, 'role': role, 'forum': forum})
+        slots.append({
+            'name': name, 'sort_order': i, 'role': role,
+            'forum': forum, 'voice': voice, 'chat': chat,
+        })
 
     event = await asyncio.to_thread(database.get_event, TEST_EVENT_SLUG)
     if event is None:
@@ -132,6 +160,7 @@ async def run_setup(cog, ctx, teams_raw, tester2):
             database.register_team, event['id'],
             f'{TEST_ROLE_PREFIX}{slot["name"]}', slot['role'].id,
             slot['forum'].id, slot['sort_order'],
+            voice_channel_id=slot['voice'].id, chat_channel_id=slot['chat'].id,
         )
         teams_built.append((slot['name'], 'created'))
 
@@ -157,6 +186,8 @@ async def run_setup(cog, ctx, teams_raw, tester2):
     lines.append(f'- Category `{TEST_CATEGORY_NAME}`: {category_status}')
     lines.append(f'- Roles: {_summarize(roles_built)}')
     lines.append(f'- Forums: {_summarize(forums_built)}')
+    lines.append(f'- Voice channels: {_summarize(voices_built)}')
+    lines.append(f'- Chat channels: {_summarize(chats_built)}')
     lines.append(f'- Event `{TEST_EVENT_SLUG}`: {event_status}')
     lines.append(f'- Team rows: {_summarize(teams_built)}')
     lines.append(f'- Tile-1 threads: {_summarize(threads_built)}')
@@ -170,6 +201,8 @@ async def run_teardown(cog, ctx):
 
     threads = {'deleted': [], 'missing': [], 'failed': []}
     forums = {'deleted': [], 'missing': [], 'failed': []}
+    voices = {'deleted': [], 'missing': [], 'failed': []}
+    chats = {'deleted': [], 'missing': [], 'failed': []}
     roles = {'deleted': [], 'missing': [], 'failed': []}
     swept_channels, swept_roles, sweep_failures = [], [], []
 
@@ -182,8 +215,18 @@ async def run_teardown(cog, ctx):
         threads = await candyland_ceremony.delete_tile_threads(
             cog.bot, [r['thread_id'] for r in thread_rows]
         )
-        forums = await candyland_ceremony.delete_team_forums(
-            cog.bot, [t['forum_channel_id'] for t in teams]
+        forums = await candyland_ceremony.delete_team_channels(
+            cog.bot, [t['forum_channel_id'] for t in teams], discord.ForumChannel
+        )
+        voices = await candyland_ceremony.delete_team_channels(
+            cog.bot,
+            [t['voice_channel_id'] for t in teams if t['voice_channel_id'] is not None],
+            discord.VoiceChannel,
+        )
+        chats = await candyland_ceremony.delete_team_channels(
+            cog.bot,
+            [t['chat_channel_id'] for t in teams if t['chat_channel_id'] is not None],
+            discord.TextChannel,
         )
         roles = await candyland_ceremony.delete_team_roles(
             ctx.guild, [t['role_id'] for t in teams], protected
@@ -193,7 +236,7 @@ async def run_teardown(cog, ctx):
     category = discord.utils.get(ctx.guild.categories, name=TEST_CATEGORY_NAME)
     if category is not None:
         for channel in list(category.channels):
-            if not channel.name.startswith(TEST_FORUM_PREFIX) or channel.id in protected:
+            if not channel.name.startswith(TEST_CHANNEL_PREFIX) or channel.id in protected:
                 continue
             try:
                 await channel.delete(reason=_REASON)
@@ -224,9 +267,11 @@ async def run_teardown(cog, ctx):
     if event is not None:
         lines.append(
             f'- Cleared `{TEST_EVENT_SLUG}`: {len(threads["deleted"])} thread(s), '
-            f'{len(forums["deleted"])} forum(s), {len(roles["deleted"])} role(s) deleted; '
-            f'{len(threads["missing"])}/{len(forums["missing"])}/{len(roles["missing"])} '
-            f'thread/forum/role already gone. Event row deleted.'
+            f'{len(forums["deleted"])} forum(s), {len(voices["deleted"])} voice channel(s), '
+            f'{len(chats["deleted"])} chat channel(s), {len(roles["deleted"])} role(s) deleted; '
+            f'{len(threads["missing"])}/{len(forums["missing"])}/{len(voices["missing"])}/'
+            f'{len(chats["missing"])}/{len(roles["missing"])} '
+            f'thread/forum/voice/chat/role already gone. Event row deleted.'
         )
     else:
         lines.append(f'- No `{TEST_EVENT_SLUG}` event row to clear.')
@@ -239,7 +284,8 @@ async def run_teardown(cog, ctx):
         + ('deleted' if category_removed else 'left in place' if category is not None
            else 'already gone')
     )
-    failed = threads['failed'] + forums['failed'] + roles['failed'] + sweep_failures
+    failed = (threads['failed'] + forums['failed'] + voices['failed']
+              + chats['failed'] + roles['failed'] + sweep_failures)
     if failed:
         lines.append('- Could not delete: ' + '; '.join(failed))
     if event is None and not swept_channels and not swept_roles and category is None:

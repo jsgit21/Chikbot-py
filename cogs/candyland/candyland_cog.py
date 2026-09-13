@@ -30,6 +30,7 @@ from . import candyland_board
 from . import candyland_bounty
 from . import candyland_ceremony
 from . import candyland_format
+from . import candyland_preset
 from . import candyland_roll
 from . import candyland_testkit
 from . import candyland_db_methods as database
@@ -102,7 +103,7 @@ class Candyland(commands.Cog):
     async def team_add(self, ctx,
                        event_slug: discord.Option(str, 'Event slug'),
                        team_name: discord.Option(str, 'Team name (also the role name)'),
-                       acronym: discord.Option(str, 'Short tag for the forum channel name'),
+                       acronym: discord.Option(str, "Short tag for the team's channel names"),
                        sort_order: discord.Option(int, 'Display order', default=0)):
         event = await asyncio.to_thread(database.get_event, event_slug)
         if event is None:
@@ -139,34 +140,37 @@ class Candyland(commands.Cog):
         await ctx.defer()
 
         reason = f'candyland {event_slug}: team {team_name}'
-        role = await ctx.guild.create_role(name=team_name, mentionable=True, reason=reason)
-        overwrites = candyland_ceremony.build_team_forum_overwrites(
-            ctx.guild, role, moderator_role, event_planner_role
-        )
         try:
-            forum = await ctx.guild.create_forum_channel(
-                name=acronym, category=category, overwrites=overwrites, reason=reason
+            team = await candyland_ceremony.provision_team(
+                ctx.guild, category, moderator_role, event_planner_role,
+                reason, event_slug, team_name, acronym,
             )
         except discord.HTTPException as e:
-            await role.delete(reason=f'{reason}: forum create failed, rolling back')
             await ctx.respond(
-                f'Could not create the forum channel: `{e!r}`. '
-                f'Rolled back the **{team_name}** role.'
+                f'Could not create team channels: `{e!r}`. '
+                f'Rolled back the **{team_name}** role and any channels made.'
             )
             return
+        role, forum, voice, chat = (
+            team['role'], team['forum'], team['voice'], team['chat']
+        )
 
         team_id = await asyncio.to_thread(
             database.register_team, event['id'], team_name, role.id, forum.id,
-            sort_order, acronym=acronym,
+            sort_order, acronym=acronym, voice_channel_id=voice.id,
+            chat_channel_id=chat.id,
         )
         await asyncio.to_thread(
             database.write_audit, ctx.author.id, 'team-add',
             {'event_slug': event_slug, 'name': team_name, 'acronym': acronym,
-             'role_id': role.id, 'forum_channel_id': forum.id, 'team_id': team_id},
+             'role_id': role.id, 'forum_channel_id': forum.id,
+             'voice_channel_id': voice.id, 'chat_channel_id': chat.id,
+             'team_id': team_id},
         )
         await ctx.respond(
             f'Registered team **{team_name}** (id `{team_id}`) for **{event_slug}**.\n'
-            f'Role: <@&{role.id}>  ·  Forum: <#{forum.id}>\n'
+            f'Role: <@&{role.id}>  ·  Forum: <#{forum.id}>  ·  '
+            f'Voice: <#{voice.id}>  ·  Chat: <#{chat.id}>\n'
             f'Assign the role to this team\'s members - chikbot does not know who they are.',
             allowed_mentions=discord.AllowedMentions.none(),
         )
@@ -313,8 +317,18 @@ class Candyland(commands.Cog):
         threads = await candyland_ceremony.delete_tile_threads(
             self.bot, [r['thread_id'] for r in thread_rows]
         )
-        forums = await candyland_ceremony.delete_team_forums(
-            self.bot, [t['forum_channel_id'] for t in teams]
+        forums = await candyland_ceremony.delete_team_channels(
+            self.bot, [t['forum_channel_id'] for t in teams], discord.ForumChannel
+        )
+        voices = await candyland_ceremony.delete_team_channels(
+            self.bot,
+            [t['voice_channel_id'] for t in teams if t['voice_channel_id'] is not None],
+            discord.VoiceChannel,
+        )
+        chats = await candyland_ceremony.delete_team_channels(
+            self.bot,
+            [t['chat_channel_id'] for t in teams if t['chat_channel_id'] is not None],
+            discord.TextChannel,
         )
         roles = await candyland_ceremony.delete_team_roles(
             ctx.guild, [t['role_id'] for t in teams],
@@ -331,6 +345,12 @@ class Candyland(commands.Cog):
              'forums_deleted': len(forums['deleted']),
              'forums_missing': len(forums['missing']),
              'forums_failed': forums['failed'],
+             'voices_deleted': len(voices['deleted']),
+             'voices_missing': len(voices['missing']),
+             'voices_failed': voices['failed'],
+             'chats_deleted': len(chats['deleted']),
+             'chats_missing': len(chats['missing']),
+             'chats_failed': chats['failed'],
              'roles_deleted': len(roles['deleted']),
              'roles_missing': len(roles['missing']),
              'roles_failed': roles['failed']},
@@ -341,13 +361,16 @@ class Candyland(commands.Cog):
             f'movement history, tile-thread records, team state and bounty use '
             f'cascaded with it.',
             f'Discord: {len(threads["deleted"])} tile thread(s), '
-            f'{len(forums["deleted"])} forum(s), {len(roles["deleted"])} role(s) deleted; '
-            f'{len(threads["missing"])}/{len(forums["missing"])}/{len(roles["missing"])} '
-            f'thread/forum/role already gone.',
+            f'{len(forums["deleted"])} forum(s), {len(voices["deleted"])} voice channel(s), '
+            f'{len(chats["deleted"])} chat channel(s), {len(roles["deleted"])} role(s) deleted; '
+            f'{len(threads["missing"])}/{len(forums["missing"])}/{len(voices["missing"])}/'
+            f'{len(chats["missing"])}/{len(roles["missing"])} '
+            f'thread/forum/voice/chat/role already gone.',
             'The `Fall 2026 Bingo` category and the Moderator / Event Planner / chikbot '
             'roles are untouched.',
         ]
-        failed = threads['failed'] + forums['failed'] + roles['failed']
+        failed = (threads['failed'] + forums['failed'] + voices['failed']
+                  + chats['failed'] + roles['failed'])
         if failed:
             lines.append('Could not delete: ' + '; '.join(failed))
         lines.append('Re-run `/candyland setup-event` to start over.')
@@ -648,6 +671,16 @@ class Candyland(commands.Cog):
             )
             return
         team_label = team['acronym'] or team['name']
+        roll_emoji = None
+        if team['emoji_id']:
+            roll_emoji = self.bot.get_emoji(team['emoji_id'])
+            if roll_emoji is None:
+                try:
+                    roll_emoji = await self.bot.fetch_emoji(team['emoji_id'])
+                except discord.NotFound:
+                    roll_emoji = '🎲'
+        else:
+            roll_emoji = '🎲'
 
         blocked = candyland_roll.blocking_condition(
             thread_row['tile_sequence'], from_sequence, board_size
@@ -752,7 +785,7 @@ class Candyland(commands.Cog):
             candyland_format.roll_announcement(
                 team_role.mention, team_label, ctx.author.mention, from_sequence,
                 die, art, modifier_name=modifier_name, final=final,
-                second_wind=second_wind, clamped_at=clamped_at,
+                roll_emoji=roll_emoji, second_wind=second_wind, clamped_at=clamped_at,
                 leader_label=leader_label, catchup_declined=catchup_declined,
             ),
             allowed_mentions=discord.AllowedMentions(users=False, roles=False),
@@ -771,7 +804,7 @@ class Candyland(commands.Cog):
                         team_role.mention, team_label, ctx.author.mention,
                         from_sequence, die, art, new_thread_id=result['new_thread_id'],
                         modifier_name=modifier_name, final=final,
-                        second_wind=second_wind, clamped_at=clamped_at,
+                        roll_emoji=roll_emoji, second_wind=second_wind, clamped_at=clamped_at,
                         leader_label=leader_label, catchup_declined=catchup_declined,
                     ),
                     allowed_mentions=discord.AllowedMentions(users=False, roles=False),
@@ -1136,6 +1169,19 @@ class Candyland(commands.Cog):
     async def test_teardown(self, ctx):
         await candyland_testkit.run_teardown(self, ctx)
     # === END TEST HARNESS ===
+
+    # === EVENT PRESET - remove after the 2026-09 event ===
+    # One-shot roster for Casual GMers Land itself, disposable the same way as
+    # the TEST HARNESS block above. Every line of logic is in
+    # candyland_preset.py. To remove after the event: delete that file, delete
+    # this block, delete the mod-guide section.
+
+    @commands.check(is_moderator)
+    @candyland.command(name='setup-gmers-land',
+                       description='One-shot: create the Casual GMers Land event and all three teams')
+    async def setup_gmers_land(self, ctx):
+        await candyland_preset.run_setup(self, ctx)
+    # === END EVENT PRESET ===
 
     async def cog_command_error(self, ctx, error):
         if isinstance(error, discord.errors.CheckFailure):

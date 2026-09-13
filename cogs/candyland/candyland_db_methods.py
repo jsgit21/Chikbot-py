@@ -64,25 +64,33 @@ def set_event_status(slug, status, testdb=None):
 
 
 def register_team(event_id, name, role_id, forum_channel_id, sort_order,
-                  acronym=None, testdb=None):
+                  acronym=None, voice_channel_id=None, chat_channel_id=None,
+                  emoji_id=None, testdb=None):
     db = testdb if testdb else connection.create_connection()
     cursor = db.cursor()
 
     query = """
         insert into team
-            (event_id, name, acronym, role_id, forum_channel_id, sort_order)
-        values (%s, %s, %s, %s, %s, %s)
+            (event_id, name, acronym, emoji_id, role_id, forum_channel_id,
+             voice_channel_id, chat_channel_id, sort_order)
+        values (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         on duplicate key update
             name = values(name),
             acronym = values(acronym),
-            forum_channel_id = values(forum_channel_id)
+            emoji_id = values(emoji_id),
+            forum_channel_id = values(forum_channel_id),
+            voice_channel_id = values(voice_channel_id),
+            chat_channel_id = values(chat_channel_id)
     """
     values = (
         event_id,
         name,
         acronym,
+        emoji_id,
         role_id,
         forum_channel_id,
+        voice_channel_id,
+        chat_channel_id,
         sort_order,
     )
     cursor.execute(query, values)
@@ -110,7 +118,8 @@ def get_teams(event_id, testdb=None):
     cursor = db.cursor(pymysql.cursors.DictCursor)
 
     query = """
-        select id, event_id, name, acronym, role_id, forum_channel_id, sort_order, created_at
+        select id, event_id, name, acronym, emoji_id, role_id, forum_channel_id,
+               voice_channel_id, chat_channel_id, sort_order, created_at
           from team
          where event_id = %s
          order by sort_order
@@ -124,7 +133,8 @@ def get_team_by_role(event_id, role_id, testdb=None):
     cursor = db.cursor(pymysql.cursors.DictCursor)
 
     query = """
-        select id, event_id, name, acronym, role_id, forum_channel_id, sort_order, created_at
+        select id, event_id, name, acronym, emoji_id, role_id, forum_channel_id,
+               voice_channel_id, chat_channel_id, sort_order, created_at
           from team
          where event_id = %s
            and role_id = %s

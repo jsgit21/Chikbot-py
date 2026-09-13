@@ -16,6 +16,7 @@ _BOUNTY_THREAD_BODY = (
 )
 _ARCHIVE_REASON = 'candyland: tile proven, team advanced'
 _CLEAR_REASON = 'candyland: /candyland delete teardown'
+_PROMOTE_REASON = 'candyland: raise team role in hierarchy'
 
 
 def build_team_forum_overwrites(guild, team_role, moderator_role, event_planner_role):
@@ -43,6 +44,106 @@ def build_team_forum_overwrites(guild, team_role, moderator_role, event_planner_
             manage_threads=True, manage_messages=True, manage_channels=True,
         ),
     }
+
+
+def build_team_text_overwrites(guild, team_role, moderator_role, event_planner_role):
+    """Permission overwrites for a team's private text/chat channel. Same shape as
+    build_team_forum_overwrites minus the forum-only thread flags
+    (create_public_threads, send_messages_in_threads) that don't apply to a plain
+    text channel. @everyone cannot see it; the team posts; mods and event
+    planners moderate; the bot has full control."""
+    member = discord.PermissionOverwrite(
+        view_channel=True, read_message_history=True, send_messages=True,
+        attach_files=True, embed_links=True, add_reactions=True,
+    )
+    staff = discord.PermissionOverwrite(
+        view_channel=True, read_message_history=True, send_messages=True,
+        attach_files=True, embed_links=True, add_reactions=True,
+        manage_threads=True, manage_messages=True,
+    )
+    return {
+        guild.default_role: discord.PermissionOverwrite(view_channel=False),
+        team_role: member,
+        moderator_role: staff,
+        event_planner_role: staff,
+        guild.me: discord.PermissionOverwrite(
+            view_channel=True, read_message_history=True, send_messages=True,
+            manage_threads=True, manage_messages=True, manage_channels=True,
+        ),
+    }
+
+
+async def promote_team_role(guild, role):
+    """Move a new team role to the highest slot Discord allows a bot to use -
+    one below the bot's own top role - so its colour beats the other roles a
+    member holds. New roles are otherwise created just above @everyone.
+    role.edit() returns a new Role rather than mutating in place, so the
+    (possibly promoted) role is returned; a caller must use the return value,
+    not the role it passed in, to see the up-to-date position."""
+    target = guild.me.top_role.position - 1
+    if target > role.position:
+        return await role.edit(position=target, reason=_PROMOTE_REASON)
+    return role
+
+
+async def provision_team(guild, category, moderator_role, event_planner_role,
+                         reason, event_slug, team_name, acronym, colour=None,
+                         icon=None):
+    """Create a team's role and its forum/voice/chat channels. Rolls back
+    everything it made and re-raises on discord.HTTPException, so a caller
+    never has to clean up a half-built team."""
+    role = None
+    created_channels = []
+    try:
+        create_kwargs = {'name': team_name, 'mentionable': True, 'colour': colour,
+                         'reason': reason}
+        if icon is not None:
+            # create_role treats an explicit icon=None differently from the icon
+            # kwarg being absent (it sends icon: null instead of omitting the
+            # field), so only pass it through when there is one to set.
+            create_kwargs['icon'] = icon
+        role = await guild.create_role(**create_kwargs)
+        role = await promote_team_role(guild, role)
+
+        forum_overwrites = build_team_forum_overwrites(
+            guild, role, moderator_role, event_planner_role
+        )
+        text_overwrites = build_team_text_overwrites(
+            guild, role, moderator_role, event_planner_role
+        )
+        forum_topic = (
+            f"{team_name}'s private tile board for candyland event {event_slug}. "
+            f'Post your proof here, one thread per tile, then run /candyland roll '
+            f'in #mainbingo.'
+        )
+
+        forum = await guild.create_forum_channel(
+            name=f'{acronym}-tiles', category=category, topic=forum_topic,
+            overwrites=forum_overwrites, reason=reason,
+        )
+        created_channels.append(forum)
+        voice = await guild.create_voice_channel(
+            name=f'{acronym}-voice', category=category, reason=reason,
+        )
+        created_channels.append(voice)
+        chat = await guild.create_text_channel(
+            name=f'{acronym}-chat', category=category,
+            overwrites=text_overwrites, reason=reason,
+        )
+        created_channels.append(chat)
+    except discord.HTTPException:
+        for channel in created_channels:
+            try:
+                await channel.delete(
+                    reason=f'{reason}: channel create failed, rolling back'
+                )
+            except discord.HTTPException:
+                pass
+        if role is not None:
+            await role.delete(reason=f'{reason}: channel create failed, rolling back')
+        raise
+
+    return {'role': role, 'forum': forum, 'voice': voice, 'chat': chat}
 
 
 async def resolve_channel(bot, channel_id):
@@ -157,26 +258,34 @@ async def delete_tile_threads(bot, thread_ids):
     return {'deleted': deleted, 'missing': missing, 'failed': failed}
 
 
-async def delete_team_forums(bot, forum_ids):
-    """Delete each team forum by id. Tolerant of an already-gone channel; refuses
-    anything that is not a ForumChannel. Never touches the parent category."""
+async def delete_team_channels(bot, channel_ids, expected_type):
+    """Delete each team channel by id (forum, voice, or text - pass the
+    discord.py class to enforce as expected_type). Skips a None id without
+    counting it as a failure (pre-migration team rows lacking a voice/chat
+    channel id). Tolerant of an already-gone channel; refuses anything that is
+    not an instance of expected_type. Never touches the parent category."""
     deleted, missing, failed = [], [], []
-    for forum_id in forum_ids:
-        try:
-            channel = await resolve_channel(bot, forum_id)
-        except discord.NotFound:
-            missing.append(forum_id)
+    for channel_id in channel_ids:
+        if channel_id is None:
             continue
-        if not isinstance(channel, discord.ForumChannel):
-            failed.append(f'{forum_id}: not a forum channel ({type(channel).__name__})')
+        try:
+            channel = await resolve_channel(bot, channel_id)
+        except discord.NotFound:
+            missing.append(channel_id)
+            continue
+        if not isinstance(channel, expected_type):
+            failed.append(
+                f'{channel_id}: not a {expected_type.__name__} '
+                f'({type(channel).__name__})'
+            )
             continue
         try:
             await channel.delete(reason=_CLEAR_REASON)
-            deleted.append(forum_id)
+            deleted.append(channel_id)
         except discord.NotFound:
-            missing.append(forum_id)
+            missing.append(channel_id)
         except discord.HTTPException as e:
-            failed.append(f'{forum_id}: {e!r}')
+            failed.append(f'{channel_id}: {e!r}')
     return {'deleted': deleted, 'missing': missing, 'failed': failed}
 
 

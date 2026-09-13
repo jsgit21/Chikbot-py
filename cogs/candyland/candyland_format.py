@@ -13,8 +13,10 @@ def header(team_label, subtext):
 
 def roll_announcement(team_mention, team_label, author_mention, from_sequence,
                       die, dice_art, new_thread_id=None, modifier_name=None,
-                      final=False, second_wind=None, clamped_at=None,
-                      leader_label=None, catchup_declined=False):
+                      final=False, roll_emoji='🎲', second_wind=None,
+                      clamped_at=None, leader_label=None, catchup_declined=False):
+    """roll_emoji defaults to the plain dice; callers pass the team's own
+    custom emoji when the team has one (team['emoji'])."""
     # second_wind / clamped_at / leader_label are the doomsday "second wind": a
     # distance-scaled bonus die folded into this roll (second_wind is the flat
     # modifier on the 1d4, rendered as 1d4+N), the leader whose lead prompted
@@ -38,7 +40,7 @@ def roll_announcement(team_mention, team_label, author_mention, from_sequence,
     lines = [
         header(team_mention, f'{team_label} has completed Tile {from_sequence}'),
         '',
-        f'🎲 {author_mention} has rolled a....{mod_tag}',
+        f'{roll_emoji} {author_mention} has rolled a....{mod_tag}',
         dice_art,
     ]
     if final:
