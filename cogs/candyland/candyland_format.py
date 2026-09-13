@@ -13,12 +13,14 @@ def header(team_label, subtext):
 
 def roll_announcement(team_mention, team_label, author_mention, from_sequence,
                       die, dice_art, new_thread_id=None, modifier_name=None,
-                      final=False):
+                      final=False, roll_emoji='🎲'):
+    """roll_emoji defaults to the plain dice; callers pass the team's own
+    custom emoji when the team has one (team['emoji'])."""
     mod_tag = f' _(with {modifier_name})_' if modifier_name else ''
     lines = [
         header(team_mention, f'{team_label} has completed Tile {from_sequence}'),
         '',
-        f'🎲 {author_mention} has rolled a....{mod_tag}',
+        f'{roll_emoji} {author_mention} has rolled a....{mod_tag}',
         dice_art,
     ]
     if final:

@@ -37,21 +37,27 @@ TEAMS = (
 _REASON = 'candyland: setup-gmers-land'
 
 
-async def _resolve_icon(emojis_by_name, acronym, warnings):
+async def _resolve_emoji(emojis_by_name, acronym, warnings):
+    """The team's custom server emoji, as (icon_bytes, markup) - markup is the
+    ready-to-use <:name:id> string stored on the team row and later swapped in
+    for the dice emoji in roll messages. Either element is None (with a
+    warning) if there is no matching emoji, or the role icon alone failed to
+    read - a missing icon must not abort a team."""
     emoji = emojis_by_name.get(acronym.upper())
     if emoji is None:
         warnings.append(
             f'{acronym}: no server emoji named `{acronym}` - role created '
-            f'without an icon.'
+            f'without an icon, roll messages will use the dice emoji.'
         )
-        return None
+        return None, None
+    markup = str(emoji)
     try:
-        return await emoji.read()
+        return await emoji.read(), markup
     except discord.HTTPException as e:
         warnings.append(
             f'{acronym}: could not read emoji `{acronym}` for the role icon: `{e!r}`.'
         )
-        return None
+        return None, markup
 
 
 def _colour_winner(existing_roles, team_role):
@@ -99,7 +105,9 @@ async def run_setup(cog, ctx):
 
     team_lines = []
     for team in TEAMS:
-        icon = await _resolve_icon(emojis_by_name, team['acronym'], warnings)
+        icon, emoji_markup = await _resolve_emoji(
+            emojis_by_name, team['acronym'], warnings
+        )
 
         try:
             built = await candyland_ceremony.provision_team(
@@ -118,6 +126,7 @@ async def run_setup(cog, ctx):
             database.register_team, event_id, team['name'], role.id,
             built['forum'].id, team['sort_order'], acronym=team['acronym'],
             voice_channel_id=built['voice'].id, chat_channel_id=built['chat'].id,
+            emoji=emoji_markup,
         )
 
         captain_status = 'not attempted'
@@ -146,7 +155,9 @@ async def run_setup(cog, ctx):
         team_lines.append(
             f"- **{team['name']}** (`{team['acronym']}`, id `{team_id}`): "
             f'role <@&{role.id}> at position {role.position}  ·  '
-            f'icon {"ok" if icon else "skipped"}  ·  captain {captain_status}'
+            f'icon {"ok" if icon else "skipped"}  ·  '
+            f'roll emoji {"ok" if emoji_markup else "skipped (dice fallback)"}  ·  '
+            f'captain {captain_status}'
         )
 
     await asyncio.to_thread(

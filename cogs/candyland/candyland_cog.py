@@ -626,6 +626,7 @@ class Candyland(commands.Cog):
             )
             return
         team_label = team['acronym'] or team['name']
+        roll_emoji = team['emoji'] or '🎲'
 
         blocked = candyland_roll.blocking_condition(
             thread_row['tile_sequence'], from_sequence, board_size
@@ -775,6 +776,7 @@ class Candyland(commands.Cog):
             candyland_format.roll_announcement(
                 team_role.mention, team_label, ctx.author.mention, from_sequence,
                 die, art, modifier_name=modifier_name, final=final,
+                roll_emoji=roll_emoji,
             ),
             allowed_mentions=discord.AllowedMentions(users=False, roles=False),
         )
@@ -792,6 +794,7 @@ class Candyland(commands.Cog):
                         team_role.mention, team_label, ctx.author.mention,
                         from_sequence, die, art, new_thread_id=result['new_thread_id'],
                         modifier_name=modifier_name, final=final,
+                        roll_emoji=roll_emoji,
                     ),
                     allowed_mentions=discord.AllowedMentions(users=False, roles=False),
                 )

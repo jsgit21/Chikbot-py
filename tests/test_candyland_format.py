@@ -26,6 +26,15 @@ def test_roll_announcement_modifier_tag():
     assert '🎲 @Nick has rolled a.... _(with Advantage)_' in result
 
 
+def test_roll_announcement_custom_team_emoji_replaces_dice():
+    result = candyland_format.roll_announcement(
+        '@Reds', 'RED', '@Nick', 3, 4, 'ART', roll_emoji='<:RED:123>',
+    )
+
+    assert '<:RED:123> @Nick has rolled a....' in result
+    assert '🎲' not in result
+
+
 def test_roll_announcement_final_tile_has_no_next_tile_line():
     result = candyland_format.roll_announcement(
         '@Reds', 'RED', '@Nick', 40, 5, 'ART', new_thread_id=900, final=True,
