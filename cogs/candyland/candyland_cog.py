@@ -29,6 +29,7 @@ from . import candyland_board
 from . import candyland_bounty
 from . import candyland_ceremony
 from . import candyland_format
+from . import candyland_preset
 from . import candyland_roll
 from . import candyland_testkit
 from . import candyland_db_methods as database
@@ -138,50 +139,20 @@ class Candyland(commands.Cog):
         await ctx.defer()
 
         reason = f'candyland {event_slug}: team {team_name}'
-        role = await ctx.guild.create_role(name=team_name, mentionable=True, reason=reason)
-        forum_overwrites = candyland_ceremony.build_team_forum_overwrites(
-            ctx.guild, role, moderator_role, event_planner_role
-        )
-        text_overwrites = candyland_ceremony.build_team_text_overwrites(
-            ctx.guild, role, moderator_role, event_planner_role
-        )
-        forum_topic = (
-            f"{team_name}'s private tile board for candyland event {event_slug}. "
-            f'Post your proof here, one thread per tile, then run /candyland roll '
-            f'in #mainbingo.'
-        )
-
-        created_channels = []
         try:
-            forum = await ctx.guild.create_forum_channel(
-                name=f'{acronym}-tiles', category=category, topic=forum_topic,
-                overwrites=forum_overwrites, reason=reason,
+            team = await candyland_ceremony.provision_team(
+                ctx.guild, category, moderator_role, event_planner_role,
+                reason, event_slug, team_name, acronym,
             )
-            created_channels.append(forum)
-            voice = await ctx.guild.create_voice_channel(
-                name=f'{acronym}-voice', category=category, reason=reason,
-            )
-            created_channels.append(voice)
-            chat = await ctx.guild.create_text_channel(
-                name=f'{acronym}-chat', category=category,
-                overwrites=text_overwrites, reason=reason,
-            )
-            created_channels.append(chat)
         except discord.HTTPException as e:
-            for channel in created_channels:
-                try:
-                    await channel.delete(
-                        reason=f'{reason}: channel create failed, rolling back'
-                    )
-                except discord.HTTPException:
-                    pass
-            await role.delete(reason=f'{reason}: channel create failed, rolling back')
             await ctx.respond(
                 f'Could not create team channels: `{e!r}`. '
-                f'Rolled back the **{team_name}** role and '
-                f'{len(created_channels)} channel(s).'
+                f'Rolled back the **{team_name}** role and any channels made.'
             )
             return
+        role, forum, voice, chat = (
+            team['role'], team['forum'], team['voice'], team['chat']
+        )
 
         team_id = await asyncio.to_thread(
             database.register_team, event['id'], team_name, role.id, forum.id,
@@ -1182,6 +1153,19 @@ class Candyland(commands.Cog):
     async def test_teardown(self, ctx):
         await candyland_testkit.run_teardown(self, ctx)
     # === END TEST HARNESS ===
+
+    # === EVENT PRESET - remove after the 2026-09 event ===
+    # One-shot roster for Casual GMers Land itself, disposable the same way as
+    # the TEST HARNESS block above. Every line of logic is in
+    # candyland_preset.py. To remove after the event: delete that file, delete
+    # this block, delete the mod-guide section.
+
+    @commands.check(is_moderator)
+    @candyland.command(name='setup-gmers-land',
+                       description='One-shot: create the Casual GMers Land event and all three teams')
+    async def setup_gmers_land(self, ctx):
+        await candyland_preset.run_setup(self, ctx)
+    # === END EVENT PRESET ===
 
     async def cog_command_error(self, ctx, error):
         if isinstance(error, discord.errors.CheckFailure):

@@ -16,6 +16,7 @@ _BOUNTY_THREAD_BODY = (
 )
 _ARCHIVE_REASON = 'candyland: tile proven, team advanced'
 _CLEAR_REASON = 'candyland: /candyland delete teardown'
+_PROMOTE_REASON = 'candyland: raise team role in hierarchy'
 
 
 def build_team_forum_overwrites(guild, team_role, moderator_role, event_planner_role):
@@ -70,6 +71,77 @@ def build_team_text_overwrites(guild, team_role, moderator_role, event_planner_r
             manage_threads=True, manage_messages=True, manage_channels=True,
         ),
     }
+
+
+async def promote_team_role(guild, role):
+    """Move a new team role to the highest slot Discord allows a bot to use -
+    one below the bot's own top role - so its colour beats the other roles a
+    member holds. New roles are otherwise created just above @everyone.
+    role.edit() returns a new Role rather than mutating in place, so the
+    (possibly promoted) role is returned; a caller must use the return value,
+    not the role it passed in, to see the up-to-date position."""
+    target = guild.me.top_role.position - 1
+    if target > role.position:
+        return await role.edit(position=target, reason=_PROMOTE_REASON)
+    return role
+
+
+async def provision_team(guild, category, moderator_role, event_planner_role,
+                         reason, event_slug, team_name, acronym, colour=None,
+                         icon=None):
+    """Create a team's role and its forum/voice/chat channels. Rolls back
+    everything it made and re-raises on discord.HTTPException, so a caller
+    never has to clean up a half-built team."""
+    create_kwargs = {'name': team_name, 'mentionable': True, 'colour': colour,
+                     'reason': reason}
+    if icon is not None:
+        # create_role treats an explicit icon=None differently from the icon
+        # kwarg being absent (it sends icon: null instead of omitting the
+        # field), so only pass it through when there is one to set.
+        create_kwargs['icon'] = icon
+    role = await guild.create_role(**create_kwargs)
+    role = await promote_team_role(guild, role)
+
+    forum_overwrites = build_team_forum_overwrites(
+        guild, role, moderator_role, event_planner_role
+    )
+    text_overwrites = build_team_text_overwrites(
+        guild, role, moderator_role, event_planner_role
+    )
+    forum_topic = (
+        f"{team_name}'s private tile board for candyland event {event_slug}. "
+        f'Post your proof here, one thread per tile, then run /candyland roll '
+        f'in #mainbingo.'
+    )
+
+    created_channels = []
+    try:
+        forum = await guild.create_forum_channel(
+            name=f'{acronym}-tiles', category=category, topic=forum_topic,
+            overwrites=forum_overwrites, reason=reason,
+        )
+        created_channels.append(forum)
+        voice = await guild.create_voice_channel(
+            name=f'{acronym}-voice', category=category, reason=reason,
+        )
+        created_channels.append(voice)
+        chat = await guild.create_text_channel(
+            name=f'{acronym}-chat', category=category,
+            overwrites=text_overwrites, reason=reason,
+        )
+        created_channels.append(chat)
+    except discord.HTTPException:
+        for channel in created_channels:
+            try:
+                await channel.delete(
+                    reason=f'{reason}: channel create failed, rolling back'
+                )
+            except discord.HTTPException:
+                pass
+        await role.delete(reason=f'{reason}: channel create failed, rolling back')
+        raise
+
+    return {'role': role, 'forum': forum, 'voice': voice, 'chat': chat}
 
 
 async def resolve_channel(bot, channel_id):
