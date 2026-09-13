@@ -92,30 +92,31 @@ async def provision_team(guild, category, moderator_role, event_planner_role,
     """Create a team's role and its forum/voice/chat channels. Rolls back
     everything it made and re-raises on discord.HTTPException, so a caller
     never has to clean up a half-built team."""
-    create_kwargs = {'name': team_name, 'mentionable': True, 'colour': colour,
-                     'reason': reason}
-    if icon is not None:
-        # create_role treats an explicit icon=None differently from the icon
-        # kwarg being absent (it sends icon: null instead of omitting the
-        # field), so only pass it through when there is one to set.
-        create_kwargs['icon'] = icon
-    role = await guild.create_role(**create_kwargs)
-    role = await promote_team_role(guild, role)
-
-    forum_overwrites = build_team_forum_overwrites(
-        guild, role, moderator_role, event_planner_role
-    )
-    text_overwrites = build_team_text_overwrites(
-        guild, role, moderator_role, event_planner_role
-    )
-    forum_topic = (
-        f"{team_name}'s private tile board for candyland event {event_slug}. "
-        f'Post your proof here, one thread per tile, then run /candyland roll '
-        f'in #mainbingo.'
-    )
-
+    role = None
     created_channels = []
     try:
+        create_kwargs = {'name': team_name, 'mentionable': True, 'colour': colour,
+                         'reason': reason}
+        if icon is not None:
+            # create_role treats an explicit icon=None differently from the icon
+            # kwarg being absent (it sends icon: null instead of omitting the
+            # field), so only pass it through when there is one to set.
+            create_kwargs['icon'] = icon
+        role = await guild.create_role(**create_kwargs)
+        role = await promote_team_role(guild, role)
+
+        forum_overwrites = build_team_forum_overwrites(
+            guild, role, moderator_role, event_planner_role
+        )
+        text_overwrites = build_team_text_overwrites(
+            guild, role, moderator_role, event_planner_role
+        )
+        forum_topic = (
+            f"{team_name}'s private tile board for candyland event {event_slug}. "
+            f'Post your proof here, one thread per tile, then run /candyland roll '
+            f'in #mainbingo.'
+        )
+
         forum = await guild.create_forum_channel(
             name=f'{acronym}-tiles', category=category, topic=forum_topic,
             overwrites=forum_overwrites, reason=reason,
@@ -138,7 +139,8 @@ async def provision_team(guild, category, moderator_role, event_planner_role,
                 )
             except discord.HTTPException:
                 pass
-        await role.delete(reason=f'{reason}: channel create failed, rolling back')
+        if role is not None:
+            await role.delete(reason=f'{reason}: channel create failed, rolling back')
         raise
 
     return {'role': role, 'forum': forum, 'voice': voice, 'chat': chat}
