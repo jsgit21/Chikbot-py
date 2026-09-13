@@ -781,23 +781,31 @@ class Candyland(commands.Cog):
         art = dice_art.render(die)
         final = to_sequence == board_size
         modifier_name = candyland_bounty.BOUNTY_NAMES[modifier] if modifier else None
-        announcement = await ctx.channel.send(
-            candyland_format.roll_announcement(
-                team_role.mention, team_label, ctx.author.mention, from_sequence,
-                die, art, modifier_name=modifier_name, final=final,
-                roll_emoji=roll_emoji, second_wind=second_wind, clamped_at=clamped_at,
-                leader_label=leader_label, catchup_declined=catchup_declined,
-            ),
-            allowed_mentions=discord.AllowedMentions(users=False, roles=False),
-        )
+        try:
+            announcement = await ctx.channel.send(
+                candyland_format.roll_announcement(
+                    team_role.mention, team_label, ctx.author.mention, from_sequence,
+                    die, art, modifier_name=modifier_name, final=final,
+                    roll_emoji=roll_emoji, second_wind=second_wind, clamped_at=clamped_at,
+                    leader_label=leader_label, catchup_declined=catchup_declined,
+                ),
+                allowed_mentions=discord.AllowedMentions(users=False, roles=False),
+            )
+            announcement_failure = None
+        except discord.HTTPException as e:
+            announcement = None
+            announcement_failure = f'announcement: {e!r}'
+
         await ctx.followup.send('Your roll is in - good luck!', ephemeral=True)
 
         result = await candyland_ceremony.run_post_roll_ceremony(
             self.bot, database, team, team_role, self.mainbingo_channel_id,
             to_sequence, thread_row,
         )
+        if announcement_failure:
+            result['failures'].append(announcement_failure)
 
-        if result['new_thread_id'] and not final:
+        if announcement is not None and result['new_thread_id'] and not final:
             try:
                 await announcement.edit(
                     content=candyland_format.roll_announcement(
@@ -932,13 +940,18 @@ class Candyland(commands.Cog):
             database.get_bounty_text, board_number, bounty_key
         )
         name = candyland_bounty.BOUNTY_NAMES[bounty_key]
-        await ctx.channel.send(
-            candyland_format.bounty_taken(
-                team_role.mention, ctx.author.mention, name,
-                text['task'], text['reward'],
-            ),
-            allowed_mentions=discord.AllowedMentions(users=False, roles=False),
-        )
+        try:
+            await ctx.channel.send(
+                candyland_format.bounty_taken(
+                    team_role.mention, ctx.author.mention, name,
+                    text['task'], text['reward'],
+                ),
+                allowed_mentions=discord.AllowedMentions(users=False, roles=False),
+            )
+            announcement_failure = None
+        except discord.HTTPException as e:
+            announcement_failure = f'announcement: {e!r}'
+
         await ctx.followup.send('Your bounty is in - good luck!', ephemeral=True)
 
         # Taking a bounty never moves the team; it still gets a fresh, labelled
@@ -949,6 +962,8 @@ class Candyland(commands.Cog):
             self.bot, database, team, team_role, self.mainbingo_channel_id,
             bounty_key, text['task'], from_sequence, thread_row,
         )
+        if announcement_failure:
+            cer['failures'].append(announcement_failure)
 
         if cer is None or not cer['open_thread_id']:
             await candyland_ceremony.post_bounty_note(
