@@ -48,7 +48,7 @@ create table candyland.team (
   event_id int unsigned not null,
   name varchar(64) not null,
   acronym varchar(16) null,                 -- short tag; render falls back to name when null
-  emoji varchar(64) null,                   -- this team's custom-emoji markup (<:name:id>); null unless set by setup-gmers-land
+  emoji_id bigint unsigned null,            -- this team's custom-emoji id; null unless set by setup-gmers-land
   role_id bigint unsigned not null,         -- the Discord role that authorises /candyland roll
   forum_channel_id bigint unsigned not null,-- where this team's per-tile threads are created
   voice_channel_id bigint unsigned null,    -- open team voice channel; null for teams created before this column existed

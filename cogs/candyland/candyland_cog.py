@@ -671,7 +671,16 @@ class Candyland(commands.Cog):
             )
             return
         team_label = team['acronym'] or team['name']
-        roll_emoji = team['emoji'] or '🎲'
+        roll_emoji = None
+        if team['emoji_id']:
+            roll_emoji = self.bot.get_emoji(team['emoji_id'])
+            if roll_emoji is None:
+                try:
+                    roll_emoji = await self.bot.fetch_emoji(team['emoji_id'])
+                except discord.NotFound:
+                    roll_emoji = '🎲'
+        else:
+            roll_emoji = '🎲'
 
         blocked = candyland_roll.blocking_condition(
             thread_row['tile_sequence'], from_sequence, board_size

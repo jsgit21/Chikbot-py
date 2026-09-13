@@ -38,11 +38,11 @@ _REASON = 'candyland: setup-gmers-land'
 
 
 async def _resolve_emoji(emojis_by_name, acronym, warnings):
-    """The team's custom server emoji, as (icon_bytes, markup) - markup is the
-    ready-to-use <:name:id> string stored on the team row and later swapped in
-    for the dice emoji in roll messages. Either element is None (with a
-    warning) if there is no matching emoji, or the role icon alone failed to
-    read - a missing icon must not abort a team."""
+    """The team's custom server emoji, as (icon_bytes, emoji_id). icon_bytes is
+    the emoji image for the role icon; emoji_id is the numeric Discord ID
+    stored on the team row and fetched at roll time. Returns (None, None) if no
+    matching emoji found or icon read fails (a missing icon must not abort a
+    team); emoji_id is None only if the emoji itself is missing."""
     emoji = emojis_by_name.get(acronym.upper())
     if emoji is None:
         warnings.append(
@@ -50,14 +50,14 @@ async def _resolve_emoji(emojis_by_name, acronym, warnings):
             f'without an icon, roll messages will use the dice emoji.'
         )
         return None, None
-    markup = str(emoji)
+    emoji_id = emoji.id
     try:
-        return await emoji.read(), markup
+        return await emoji.read(), emoji_id
     except discord.HTTPException as e:
         warnings.append(
             f'{acronym}: could not read emoji `{acronym}` for the role icon: `{e!r}`.'
         )
-        return None, markup
+        return None, emoji_id
 
 
 def _colour_winner(existing_roles, team_role):
@@ -105,7 +105,7 @@ async def run_setup(cog, ctx):
 
     team_lines = []
     for team in TEAMS:
-        icon, emoji_markup = await _resolve_emoji(
+        icon, emoji_id = await _resolve_emoji(
             emojis_by_name, team['acronym'], warnings
         )
 
@@ -126,7 +126,7 @@ async def run_setup(cog, ctx):
             database.register_team, event_id, team['name'], role.id,
             built['forum'].id, team['sort_order'], acronym=team['acronym'],
             voice_channel_id=built['voice'].id, chat_channel_id=built['chat'].id,
-            emoji=emoji_markup,
+            emoji_id=emoji_id,
         )
 
         captain_status = 'not attempted'
@@ -156,7 +156,7 @@ async def run_setup(cog, ctx):
             f"- **{team['name']}** (`{team['acronym']}`, id `{team_id}`): "
             f'role <@&{role.id}> at position {role.position}  ·  '
             f'icon {"ok" if icon else "skipped"}  ·  '
-            f'roll emoji {"ok" if emoji_markup else "skipped (dice fallback)"}  ·  '
+            f'roll emoji {"ok" if emoji_id else "skipped (dice fallback)"}  ·  '
             f'captain {captain_status}'
         )
 
