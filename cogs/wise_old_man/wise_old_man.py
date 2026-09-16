@@ -1,3 +1,4 @@
+import asyncio
 import os
 import datetime
 import discord
@@ -28,7 +29,7 @@ class Wise_Old_Man(commands.Cog):
     @commands.check(is_moderator)
     @discord.slash_command(description='''Sync the whitelist that controls access to Dink Webhooks.''')
     async def sync_wom_whitelist(self, ctx):
-        all_members = get_members_with_ranks()
+        all_members = await asyncio.to_thread(get_members_with_ranks)
         changes = database.update_local_wom_group(all_members)
 
         if changes['total_changes'] == 0:
@@ -119,11 +120,11 @@ class Wise_Old_Man(commands.Cog):
 
     @tasks.loop(time=datetime.time(hour=9, minute=00, tzinfo=EST))
     async def update_wom_group(self):
-        sync_message = self.sync_wom_group_to_db()
+        sync_message = await asyncio.to_thread(self.sync_wom_group_to_db)
         if sync_message:
             await self.mod_channel.send(sync_message)
 
-        message = bulk_update_outdated_users()
+        message = await asyncio.to_thread(bulk_update_outdated_users)
         await self.dev_channel.send(message)
 
 
@@ -135,7 +136,7 @@ class Wise_Old_Man(commands.Cog):
     @tasks.loop(time=datetime.time(hour=10, minute=00, tzinfo=EST))
     async def rolecheck(self):
         try:
-            update_users = get_misranked_users()
+            update_users = await asyncio.to_thread(get_misranked_users)
 
             if len(update_users) > 0:
                 output_message_list = self.format_output(update_users)
@@ -147,7 +148,7 @@ class Wise_Old_Man(commands.Cog):
                 await self.mod_channel.send(note)
 
                 # Provide a list of guests in the group
-                guest_list = self.get_guests()
+                guest_list = await asyncio.to_thread(self.get_guests)
                 await self.mod_channel.send(f'-# Guests for WOM sync: {guest_list}')
         except Exception as e:
             print(e)
