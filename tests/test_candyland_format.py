@@ -204,6 +204,31 @@ def test_bounty_claimed_shape():
     assert "Your team's next tile is ➡️ <#901>" in result
 
 
+def test_bounty_roll_announcement_marks_the_kept_die():
+    result = candyland_format.bounty_roll_announcement(
+        '@Reds', '@Nick', 'Advantage', 'higher', 3, 'ART_A', 5, 'ART_B', 5,
+        'roll twice immediately and take the higher result.', new_thread_id=900,
+    )
+
+    assert '-# @Nick completed the **Advantage** bounty!' in result
+    assert '**Roll 1: 3** ❌ dropped' in result
+    assert 'ART_A' in result
+    assert '**Roll 2: 5** ✅ kept' in result
+    assert 'ART_B' in result
+    assert '### roll twice immediately and take the higher result.' in result
+    assert "Your team's next tile is ➡️ <#900>" in result
+
+
+def test_bounty_roll_announcement_final_tile_has_no_next_tile_line():
+    result = candyland_format.bounty_roll_announcement(
+        '@Reds', '@Nick', 'Disadvantage', 'lower', 2, 'ART_A', 4, 'ART_B', 2,
+        'roll twice immediately and take the lower result.', new_thread_id=900, final=True,
+    )
+
+    assert '-# 🏁 This is the **final tile**.' in result
+    assert 'next tile' not in result.lower()
+
+
 def test_bounties_list_strikes_used_bounties():
     rows = [('RETREAT', 'Retreat', True), ('ADVANCE', 'Advance', False)]
 

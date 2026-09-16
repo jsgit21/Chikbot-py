@@ -106,6 +106,22 @@ def test_roll_move_clamps_to_final_tile():
     assert to_sequence == 42
 
 
+def test_roll_pair_advantage_keeps_higher():
+    for _ in range(200):
+        die_a, die_b, chosen = candyland_roll.roll_pair('ADVANTAGE')
+        assert 2 <= die_a <= 5
+        assert 2 <= die_b <= 5
+        assert chosen == max(die_a, die_b)
+
+
+def test_roll_pair_disadvantage_keeps_lower():
+    for _ in range(200):
+        die_a, die_b, chosen = candyland_roll.roll_pair('DISADVANTAGE')
+        assert 2 <= die_a <= 5
+        assert 2 <= die_b <= 5
+        assert chosen == min(die_a, die_b)
+
+
 def test_catchup_move_no_second_wind_within_five_of_the_leader():
     # ordinary roll lands 4 behind the leader -> no bonus die
     for _ in range(200):

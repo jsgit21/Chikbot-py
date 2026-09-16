@@ -82,6 +82,15 @@ def roll_move(from_sequence, board_size, modifier=None):
     return die, min(from_sequence + die, board_size)
 
 
+def roll_pair(modifier):
+    """Roll two of the movement die for an Advantage/Disadvantage bounty claim.
+    Returns (die_a, die_b, chosen): chosen is the higher of the two for
+    'ADVANTAGE', the lower for 'DISADVANTAGE'."""
+    die_a, die_b = _d(), _d()
+    chosen = min(die_a, die_b) if modifier == 'DISADVANTAGE' else max(die_a, die_b)
+    return die_a, die_b, chosen
+
+
 # Distance-scaled doomsday catch-up (event-rules decision 37). `gap` is how many
 # tiles behind the leader's current tile the team's ordinary roll left it.
 # Below CATCHUP_MIN_GAP there is no bonus die. From there the bonus is always

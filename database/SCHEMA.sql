@@ -146,7 +146,7 @@ create table candyland.bounty_use (
   id int unsigned primary key auto_increment,
   team_id int unsigned not null,
   board_number tinyint unsigned not null,   -- which board the used-on tile is on, at write time; "each bounty once per board"
-  bounty_key varchar(16) not null,          -- RETREAT, ADVANCE, DISADVANTAGE, ADVANTAGE, DOUBLE_DOWN, SWAP
+  bounty_key varchar(16) not null,          -- RETREAT, ADVANCE, CHARGE, DISADVANTAGE, ADVANTAGE, DOUBLE_DOWN, SWAP
   used_on_sequence int not null,
   movement_id int unsigned,
   claimed_at datetime null,                 -- null: taken but not completed; this is what "outstanding" means
@@ -159,7 +159,7 @@ create table candyland.bounty_use (
 create table candyland.bounty (
   id tinyint unsigned primary key auto_increment,
   board_number tinyint unsigned not null,
-  bounty_key varchar(16) not null,          -- RETREAT, ADVANCE, DISADVANTAGE, ADVANTAGE, DOUBLE_DOWN, SWAP
+  bounty_key varchar(16) not null,          -- RETREAT, ADVANCE, CHARGE, DISADVANTAGE, ADVANTAGE, DOUBLE_DOWN, SWAP
   task varchar(255) not null,               -- phrased to follow "This means that "
   reward varchar(500) not null,             -- phrased to follow "your team will:"
   unique key (board_number, bounty_key)

@@ -119,6 +119,32 @@ def bounty_claimed(team_mention, author_mention, bounty_name, reward, new_thread
     ])
 
 
+def bounty_roll_announcement(team_mention, author_mention, bounty_name, keep_label,
+                             die_a, art_a, die_b, art_b, chosen, reward,
+                             new_thread_id=None, final=False, roll_emoji='🎲'):
+    """Advantage/Disadvantage bounty-claim announcement: claiming rolls two dice
+    immediately and keeps the higher (Advantage) or lower (Disadvantage). Shows
+    both dice blocks labelled kept/dropped so the team can see the one that
+    didn't count, not just the one that did."""
+    lines = [
+        header(team_mention, f'{author_mention} completed the **{bounty_name}** bounty!'),
+        '',
+        f'{roll_emoji} Claiming rolled two dice, keeping the {keep_label}:',
+        f'**Roll 1: {die_a}** {"✅ kept" if die_a == chosen else "❌ dropped"}',
+        art_a,
+        f'**Roll 2: {die_b}** {"✅ kept" if die_b == chosen else "❌ dropped"}',
+        art_b,
+        '',
+        f'### {reward}',
+    ]
+    if final:
+        lines.append('-# 🏁 This is the **final tile**.')
+    elif new_thread_id is not None:
+        lines.append('')
+        lines.append(f"Your team's next tile is ➡️ <#{new_thread_id}>")
+    return '\n'.join(lines)
+
+
 def bounties_list(team_mention, bounty_rows):
     """bounty_rows: iterable of (key, name, used) in display order."""
     lines = [header(team_mention, 'The bounties your team has available are:'), '']

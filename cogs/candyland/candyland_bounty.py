@@ -8,36 +8,35 @@ What lives here is the mechanical shape chikbot must apply.
 """
 
 BOUNTY_KEYS = [
-    'RETREAT', 'ADVANCE', 'DISADVANTAGE', 'ADVANTAGE', 'DOUBLE_DOWN', 'SWAP',
+    'RETREAT', 'ADVANCE', 'CHARGE', 'DISADVANTAGE', 'ADVANTAGE', 'DOUBLE_DOWN', 'SWAP',
 ]
 
 BOUNTY_NAMES = {
     'RETREAT': 'Retreat',
     'ADVANCE': 'Advance',
+    'CHARGE': 'Charge',
     'DISADVANTAGE': 'Disadvantage',
     'ADVANTAGE': 'Advantage',
     'DOUBLE_DOWN': 'Double Down',
     'SWAP': 'Swap',
 }
 
-# All six bounties open a fresh, labelled thread on the destination tile and
-# archive the one the team was on, so the alternative task's proof always
-# starts from an empty thread.
-#
-# Disadvantage and Advantage are still special on one axis: sequencing. A team
-# may not chain bounties across one tile, but a +/-1 move (Retreat/Advance) may
-# still follow one of these two. Every other bounty is a hard stop until the
-# team completes the tile and rolls. Enforced in the cog off
-# get_last_bounty_since_roll.
-SOFT_LOCK_KEYS = {'DISADVANTAGE', 'ADVANTAGE'}
-MOVE_KEYS = {'RETREAT', 'ADVANCE'}
+# Advantage/Disadvantage no longer defer to the next /candyland roll - claiming
+# them rolls (two dice, keep higher/lower) and moves the team right away, so
+# the claim itself is the roll. complete_bounty special-cases these two keys
+# instead of going through destination().
+ROLL_ON_CLAIM_KEYS = {'ADVANTAGE', 'DISADVANTAGE'}
+KEEP_LABEL = {'ADVANTAGE': 'higher', 'DISADVANTAGE': 'lower'}
 
 
 def destination(bounty_key, from_sequence, board_final):
     """The tile the team ends on after claiming. Equals from_sequence for the
-    four non-moving bounties."""
+    three non-moving bounties (Advantage/Disadvantage now resolve in
+    complete_bounty instead of here - see ROLL_ON_CLAIM_KEYS)."""
     if bounty_key == 'RETREAT':
         return max(1, from_sequence - 1)
     if bounty_key == 'ADVANCE':
         return min(from_sequence + 1, board_final)
+    if bounty_key == 'CHARGE':
+        return min(from_sequence + 4, board_final)
     return from_sequence
