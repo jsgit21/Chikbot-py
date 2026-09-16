@@ -442,8 +442,7 @@ def complete_bounty(team_id, bounty_use_id, invoked_by_user_id, expected_movemen
             return {'ok': False, 'reason': 'conflict'}
         bounty_key = row[0]
 
-        cursor.execute("select max(tile_sequence) from task where kind = 'major'")
-        total_tiles = cursor.fetchone()[0]
+        total_tiles = get_max_major_tile_sequence(testdb=db)
         board_final = candyland_board.board_final_tile(from_sequence, total_tiles)
 
         die_a = die_b = die = None
@@ -932,7 +931,12 @@ def get_max_major_tile_sequence(testdb=None):
     cursor = db.cursor()
 
     cursor.execute("select max(tile_sequence) from task where kind = 'major'")
-    return cursor.fetchone()[0]
+    total = cursor.fetchone()[0]
+    if total is None:
+        raise RuntimeError(
+            "task table has no kind='major' rows yet; event is not seeded"
+        )
+    return total
 
 
 def get_task_for_tile(tile_sequence, testdb=None):

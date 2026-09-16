@@ -220,14 +220,19 @@ async def open_tile_thread(bot, database, forum_channel_id, mainbingo_channel_id
     is_new_minor_draw = False
     if not bounty_label:
         major = await asyncio.to_thread(database.get_task_for_tile, tile_sequence)
-        if is_double_down_redo and reused_minor_task_ids:
+        minor_count = candyland_board.minor_count_for_tile(tile_sequence)
+        if is_double_down_redo:
+            if reused_minor_task_ids is None or len(reused_minor_task_ids) != minor_count:
+                raise ValueError(
+                    f'Double Down redo for tile {tile_sequence} expected '
+                    f'{minor_count} reused Minor(s), got {reused_minor_task_ids!r}'
+                )
             minor_task_ids = reused_minor_task_ids
             minors = [
                 await asyncio.to_thread(database.get_task_by_id, minor_id)
                 for minor_id in minor_task_ids
             ]
         else:
-            minor_count = candyland_board.minor_count_for_tile(tile_sequence)
             pool = await asyncio.to_thread(database.get_minor_pool)
             excluded_ids = await asyncio.to_thread(database.get_team_minor_history, team_id)
             minors = candyland_roll.draw_minors(pool, excluded_ids, minor_count)
