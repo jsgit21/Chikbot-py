@@ -219,29 +219,44 @@ async def open_tile_thread(bot, database, forum_channel_id, mainbingo_channel_id
     minor_task_ids = []
     is_new_minor_draw = False
     if not bounty_label:
-        major = await asyncio.to_thread(database.get_task_for_tile, tile_sequence)
-        minor_count = candyland_board.minor_count_for_tile(tile_sequence)
-        if is_double_down_redo:
-            if reused_minor_task_ids is None or len(reused_minor_task_ids) != minor_count:
-                raise ValueError(
-                    f'Double Down redo for tile {tile_sequence} expected '
-                    f'{minor_count} reused Minor(s), got {reused_minor_task_ids!r}'
+        # Everything below can fail (empty task/Minor pool before the event is
+        # seeded, a bad Double Down history, a Discord send). The thread above
+        # is already created and pinged/pinned, so a failure here must not
+        # leave it behind half-populated and untracked in the DB - delete it
+        # and re-raise, so the caller's ceremony correctly reports "no thread"
+        # instead of "thread FAIL" while one silently sits in the forum.
+        try:
+            major = await asyncio.to_thread(database.get_task_for_tile, tile_sequence)
+            minor_count = candyland_board.minor_count_for_tile(tile_sequence)
+            if is_double_down_redo:
+                if reused_minor_task_ids is None or len(reused_minor_task_ids) != minor_count:
+                    raise ValueError(
+                        f'Double Down redo for tile {tile_sequence} expected '
+                        f'{minor_count} reused Minor(s), got {reused_minor_task_ids!r}'
+                    )
+                minor_task_ids = reused_minor_task_ids
+                minors = [
+                    await asyncio.to_thread(database.get_task_by_id, minor_id)
+                    for minor_id in minor_task_ids
+                ]
+            else:
+                pool = await asyncio.to_thread(database.get_minor_pool)
+                excluded_ids = await asyncio.to_thread(
+                    database.get_team_minor_history, team_id
                 )
-            minor_task_ids = reused_minor_task_ids
-            minors = [
-                await asyncio.to_thread(database.get_task_by_id, minor_id)
-                for minor_id in minor_task_ids
-            ]
-        else:
-            pool = await asyncio.to_thread(database.get_minor_pool)
-            excluded_ids = await asyncio.to_thread(database.get_team_minor_history, team_id)
-            minors = candyland_roll.draw_minors(pool, excluded_ids, minor_count)
-            minor_task_ids = [minor['id'] for minor in minors]
-            is_new_minor_draw = True
-        await thread.send(
-            candyland_format.tile_goals(major, minors),
-            allowed_mentions=discord.AllowedMentions.none(),
-        )
+                minors = candyland_roll.draw_minors(pool, excluded_ids, minor_count)
+                minor_task_ids = [minor['id'] for minor in minors]
+                is_new_minor_draw = True
+            await thread.send(
+                candyland_format.tile_goals(major, minors),
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+        except Exception:
+            try:
+                await thread.delete()
+            except discord.HTTPException:
+                pass
+            raise
 
     return thread, pin_step, minor_task_ids, is_new_minor_draw
 
