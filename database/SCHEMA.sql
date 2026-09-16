@@ -60,6 +60,19 @@ create table candyland.team (
   unique key (event_id, role_id)
 );
 
+create table candyland.task (
+  id int unsigned primary key auto_increment,
+  kind enum('major','minor') not null,
+  tile_sequence int null,                   -- populated only for kind='major'
+  title varchar(255) not null,
+  task varchar(1000) not null,
+  notes varchar(1000) null,
+  unique key uq_task_tile_sequence (tile_sequence)
+);
+-- One row per Major or Minor, Phase F (schema landed 2026-09-15, real data a
+-- follow-up seed script once Nick's tile/Minor spreadsheet is locked).
+-- uq_task_tile_sequence is the DB-level guarantee of one tile per Major.
+
 create table candyland.tile_thread (
   id int unsigned primary key auto_increment,
   team_id int unsigned not null,
@@ -73,7 +86,30 @@ create table candyland.tile_thread (
   unique key (team_id, tile_sequence)
 );
 -- At most one open thread per team is a runtime invariant enforced in code,
--- not a DB constraint (MySQL cannot do a partial unique index).
+-- not a DB constraint (MySQL cannot do a partial unique index). Which
+-- Minor(s) this thread showed is not a column here - it is derived by
+-- querying team_minor_history for this row's id, since a tile can carry more
+-- than one Minor (2 past the doomsday tile, decision 43) and a fixed column
+-- count would not generalise.
+
+create table candyland.team_minor_history (
+  id int unsigned primary key auto_increment,
+  team_id int unsigned not null,
+  minor_task_id int unsigned not null,
+  tile_thread_id int unsigned not null,
+  assigned_at datetime not null default current_timestamp,
+  unique key uq_team_minor (team_id, minor_task_id),
+  foreign key (team_id) references team (id),
+  foreign key (minor_task_id) references task (id),
+  foreign key (tile_thread_id) references tile_thread (id)
+);
+-- Every Minor a team has ever drawn, whole event (decision 39's amended
+-- exclusion rule: never the same Minor twice, not just not-in-a-row) - one
+-- row per Minor, so a two-Minor tile (decision 43) writes two rows sharing
+-- the same tile_thread_id. Doubles as the post-event reporting log and as the
+-- lookup for which Minor(s) a given tile_thread showed. uq_team_minor is the
+-- DB-level guarantee; the Python exclusion logic in draw_minors is the
+-- primary mechanism.
 
 create table candyland.movement (
   id int unsigned primary key auto_increment,
@@ -110,7 +146,7 @@ create table candyland.bounty_use (
   id int unsigned primary key auto_increment,
   team_id int unsigned not null,
   board_number tinyint unsigned not null,   -- which board the used-on tile is on, at write time; "each bounty once per board"
-  bounty_key varchar(16) not null,          -- RETREAT, ADVANCE, DISADVANTAGE, ADVANTAGE, DOUBLE_DOWN, SWAP
+  bounty_key varchar(16) not null,          -- RETREAT, ADVANCE, CHARGE, DISADVANTAGE, ADVANTAGE, DOUBLE_DOWN, SWAP
   used_on_sequence int not null,
   movement_id int unsigned,
   claimed_at datetime null,                 -- null: taken but not completed; this is what "outstanding" means
@@ -123,7 +159,7 @@ create table candyland.bounty_use (
 create table candyland.bounty (
   id tinyint unsigned primary key auto_increment,
   board_number tinyint unsigned not null,
-  bounty_key varchar(16) not null,          -- RETREAT, ADVANCE, DISADVANTAGE, ADVANTAGE, DOUBLE_DOWN, SWAP
+  bounty_key varchar(16) not null,          -- RETREAT, ADVANCE, CHARGE, DISADVANTAGE, ADVANTAGE, DOUBLE_DOWN, SWAP
   task varchar(255) not null,               -- phrased to follow "This means that "
   reward varchar(500) not null,             -- phrased to follow "your team will:"
   unique key (board_number, bounty_key)

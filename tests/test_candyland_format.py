@@ -7,6 +7,65 @@ def test_header_prepends_team():
     assert result == '# Team @Reds\n-# has completed Tile 3'
 
 
+def test_tile_goals_full_shape_with_notes():
+    major = {'title': 'One Oathplate piece', 'task': 'Get any Oathplate piece.',
+             'notes': 'Any piece counts.'}
+    minor = {'title': 'Woodcutting', 'task': 'Complete 6 Forestry events.',
+             'notes': 'Must include at least one of each event type.'}
+
+    result = candyland_format.tile_goals(major, [minor])
+
+    assert result == (
+        '# __Major Task__\n'
+        '## One Oathplate piece\n'
+        '*Get any Oathplate piece.*\n'
+        '\n'
+        '-# *Any piece counts.*\n'
+        '\n'
+        '\n'
+        '# __Minor Task__\n'
+        '## Woodcutting\n'
+        '*Complete 6 Forestry events.*\n'
+        '\n'
+        '-# *Must include at least one of each event type.*'
+    )
+
+
+def test_tile_goals_drops_notes_line_when_absent():
+    major = {'title': 'Title', 'task': 'Task', 'notes': None}
+    minor = {'title': 'Title', 'task': 'Task', 'notes': ''}
+
+    result = candyland_format.tile_goals(major, [minor])
+
+    assert '-# *None*' not in result
+    assert '-#' not in result
+
+
+def test_tile_goals_two_minors_are_numbered_and_both_render():
+    major = {'title': 'Major', 'task': 'Do the major.', 'notes': None}
+    minor_1 = {'title': 'Woodcutting', 'task': 'Complete 6 Forestry events.', 'notes': None}
+    minor_2 = {'title': 'Fishing', 'task': 'Catch 200 anglerfish.', 'notes': 'Barb fishing counts.'}
+
+    result = candyland_format.tile_goals(major, [minor_1, minor_2])
+
+    assert '# __Minor Task 1__\n## Woodcutting\n*Complete 6 Forestry events.*' in result
+    assert (
+        '# __Minor Task 2__\n## Fishing\n*Catch 200 anglerfish.*\n\n'
+        '-# *Barb fishing counts.*'
+    ) in result
+    assert '# __Minor Task__\n' not in result
+
+
+def test_tile_goals_single_minor_keeps_unnumbered_label():
+    major = {'title': 'Major', 'task': 'Do the major.', 'notes': None}
+    minor = {'title': 'Woodcutting', 'task': 'Complete 6 Forestry events.', 'notes': None}
+
+    result = candyland_format.tile_goals(major, [minor])
+
+    assert '# __Minor Task__' in result
+    assert '# __Minor Task 1__' not in result
+
+
 def test_roll_announcement_basic_shape():
     result = candyland_format.roll_announcement(
         '@Reds', 'RED', '@Nick', 3, 4, 'ART', new_thread_id=900,
@@ -143,6 +202,31 @@ def test_bounty_claimed_shape():
 
     assert '### move back 1 tile.' in result
     assert "Your team's next tile is ➡️ <#901>" in result
+
+
+def test_bounty_roll_announcement_marks_the_kept_die():
+    result = candyland_format.bounty_roll_announcement(
+        '@Reds', '@Nick', 'Advantage', 'higher', 3, 'ART_A', 5, 'ART_B', 5,
+        'roll twice immediately and take the higher result.', new_thread_id=900,
+    )
+
+    assert '-# @Nick completed the **Advantage** bounty!' in result
+    assert '**Roll 1: 3** ❌ dropped' in result
+    assert 'ART_A' in result
+    assert '**Roll 2: 5** ✅ kept' in result
+    assert 'ART_B' in result
+    assert '### roll twice immediately and take the higher result.' in result
+    assert "Your team's next tile is ➡️ <#900>" in result
+
+
+def test_bounty_roll_announcement_final_tile_has_no_next_tile_line():
+    result = candyland_format.bounty_roll_announcement(
+        '@Reds', '@Nick', 'Disadvantage', 'lower', 2, 'ART_A', 4, 'ART_B', 2,
+        'roll twice immediately and take the lower result.', new_thread_id=900, final=True,
+    )
+
+    assert '-# 🏁 This is the **final tile**.' in result
+    assert 'next tile' not in result.lower()
 
 
 def test_bounties_list_strikes_used_bounties():

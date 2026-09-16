@@ -1,4 +1,58 @@
+import pytest
+
 from cogs.candyland import candyland_roll
+
+
+def test_draw_minor_never_returns_an_excluded_id():
+    pool = [{'id': 1}, {'id': 2}, {'id': 3}]
+    for _ in range(200):
+        drawn = candyland_roll.draw_minor(pool, {1, 2})
+        assert drawn['id'] == 3
+
+
+def test_draw_minor_always_returns_a_pool_member():
+    pool = [{'id': 1}, {'id': 2}, {'id': 3}]
+    for _ in range(200):
+        drawn = candyland_roll.draw_minor(pool, set())
+        assert drawn in pool
+
+
+def test_draw_minor_raises_on_a_fully_excluded_pool():
+    pool = [{'id': 1}, {'id': 2}]
+    with pytest.raises(ValueError):
+        candyland_roll.draw_minor(pool, {1, 2})
+
+
+def test_draw_minor_single_item_pool_with_no_exclusions():
+    pool = [{'id': 1}]
+    assert candyland_roll.draw_minor(pool, set())['id'] == 1
+
+
+def test_draw_minors_returns_the_requested_count_no_duplicates():
+    pool = [{'id': i} for i in range(1, 6)]
+    for _ in range(200):
+        drawn = candyland_roll.draw_minors(pool, set(), 2)
+        assert len(drawn) == 2
+        assert drawn[0]['id'] != drawn[1]['id']
+        assert all(d in pool for d in drawn)
+
+
+def test_draw_minors_never_returns_an_excluded_id():
+    pool = [{'id': 1}, {'id': 2}, {'id': 3}, {'id': 4}]
+    for _ in range(200):
+        drawn = candyland_roll.draw_minors(pool, {1, 2}, 2)
+        assert {d['id'] for d in drawn} == {3, 4}
+
+
+def test_draw_minors_raises_when_not_enough_unexcluded_tasks():
+    pool = [{'id': 1}, {'id': 2}, {'id': 3}]
+    with pytest.raises(ValueError):
+        candyland_roll.draw_minors(pool, {1, 2}, 2)
+
+
+def test_draw_minor_delegates_to_draw_minors():
+    pool = [{'id': 1}]
+    assert candyland_roll.draw_minor(pool, set()) == candyland_roll.draw_minors(pool, set(), 1)[0]
 
 
 def test_resolve_caller_team_matches_one_role():
@@ -50,6 +104,22 @@ def test_roll_move_is_1d4_plus_1_within_bounds():
 def test_roll_move_clamps_to_final_tile():
     die, to_sequence = candyland_roll.roll_move(40, 42)
     assert to_sequence == 42
+
+
+def test_roll_pair_advantage_keeps_higher():
+    for _ in range(200):
+        die_a, die_b, chosen = candyland_roll.roll_pair('ADVANTAGE')
+        assert 2 <= die_a <= 5
+        assert 2 <= die_b <= 5
+        assert chosen == max(die_a, die_b)
+
+
+def test_roll_pair_disadvantage_keeps_lower():
+    for _ in range(200):
+        die_a, die_b, chosen = candyland_roll.roll_pair('DISADVANTAGE')
+        assert 2 <= die_a <= 5
+        assert 2 <= die_b <= 5
+        assert chosen == min(die_a, die_b)
 
 
 def test_catchup_move_no_second_wind_within_five_of_the_leader():

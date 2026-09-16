@@ -207,13 +207,21 @@ class Candyland(commands.Cog):
                 failed.append(f'{team["name"]}: role {team["role_id"]} not found')
                 continue
             try:
-                thread, _pin_step = await candyland_ceremony.open_tile_thread(
-                    self.bot, team['forum_channel_id'], self.mainbingo_channel_id,
-                    team_role, 1,
+                thread, _pin_step, minor_task_ids, is_new_minor_draw = (
+                    await candyland_ceremony.open_tile_thread(
+                        self.bot, database, team['forum_channel_id'],
+                        self.mainbingo_channel_id, team['id'], team_role, 1,
+                    )
                 )
-                await asyncio.to_thread(
+                new_thread_row_id = await asyncio.to_thread(
                     database.open_tile_thread, team['id'], 1, thread.id
                 )
+                if is_new_minor_draw:
+                    for minor_task_id in minor_task_ids:
+                        await asyncio.to_thread(
+                            database.record_minor_history, team['id'], minor_task_id,
+                            new_thread_row_id,
+                        )
                 opened.append(team['name'])
             except Exception as e:
                 failed.append(f'{team["name"]}: {e!r}')
@@ -405,9 +413,10 @@ class Candyland(commands.Cog):
             )
             return
 
-        upper = (candyland_board.BOARD1_SIZE
-                 if event['board2_revealed_at'] is None
-                 else candyland_board.TOTAL_TILES)
+        if event['board2_revealed_at'] is None:
+            upper = candyland_board.BOARD1_SIZE
+        else:
+            upper = await asyncio.to_thread(candyland_board.total_tiles, database)
         if not 1 <= tile <= upper:
             await ctx.followup.send(f'Tile must be between 1 and {upper}.')
             return
@@ -643,8 +652,10 @@ class Candyland(commands.Cog):
         from_sequence = state['current_sequence']
 
         revealed = event['board2_revealed_at'] is not None
-        board_size = (candyland_board.TOTAL_TILES if revealed
-                      else candyland_board.BOARD1_SIZE)
+        if revealed:
+            board_size = await asyncio.to_thread(candyland_board.total_tiles, database)
+        else:
+            board_size = candyland_board.BOARD1_SIZE
 
         # Post-reveal catch-up (event-rules decision 37): on a team's FIRST roll
         # after the reveal, a distance-scaled "second wind" die if the ordinary
@@ -721,7 +732,7 @@ class Candyland(commands.Cog):
                 team_role.mention, team_label,
                 planner_role.mention if planner_role else '@Event Planner',
                 moderator_role.mention if moderator_role else '@Moderator',
-                claim=(from_sequence == candyland_board.TOTAL_TILES),
+                claim=(from_sequence == board_size),
             )
             await ctx.channel.send(
                 content,
@@ -876,7 +887,8 @@ class Candyland(commands.Cog):
             await ctx.followup.send(self._BOUNTY_REFUSALS[candyland_roll.OUT_OF_SYNC])
             return
 
-        if candyland_board.is_board_edge_tile(from_sequence):
+        total_tiles = await asyncio.to_thread(candyland_board.total_tiles, database)
+        if candyland_board.is_board_edge_tile(from_sequence, total_tiles):
             await ctx.followup.send(
                 "-# ⚠ Bounties can't be taken on the first or last tile of a board."
             )
@@ -887,19 +899,11 @@ class Candyland(commands.Cog):
         )
         if last_bounty is not None:
             last_name = candyland_bounty.BOUNTY_NAMES[last_bounty]
-            if last_bounty not in candyland_bounty.SOFT_LOCK_KEYS:
-                await ctx.followup.send(
-                    f"-# ⚠ Your team's last bounty was **{last_name}**. Complete "
-                    'this tile and roll before taking another bounty.'
-                )
-                return
-            if bounty_key not in candyland_bounty.MOVE_KEYS:
-                await ctx.followup.send(
-                    f'-# ⚠ Your team already took the **{last_name}** bounty since '
-                    'its last roll. Only Retreat or Advance can follow it, '
-                    'otherwise complete this tile and roll.'
-                )
-                return
+            await ctx.followup.send(
+                f"-# ⚠ Your team's last bounty was **{last_name}**. Complete "
+                'this tile and roll before taking another bounty.'
+            )
+            return
 
         unclaimed = await asyncio.to_thread(database.get_unclaimed_bounty, team['id'])
         if unclaimed is not None:
@@ -1120,7 +1124,7 @@ class Candyland(commands.Cog):
 
         result = await asyncio.to_thread(
             database.complete_bounty, team['id'], unclaimed['id'], ctx.author.id,
-            state['last_movement_id'],
+            state['last_movement_id'], proof_thread_id=thread_row['thread_id'],
         )
         if not result['ok']:
             await ctx.followup.send('-# ⚠ The board just changed - check it and try again.')
@@ -1134,33 +1138,75 @@ class Candyland(commands.Cog):
         )
         name = candyland_bounty.BOUNTY_NAMES[unclaimed['bounty_key']]
 
-        cer = await candyland_ceremony.run_move_thread_ceremony(
-            self.bot, database, team, team_role, self.mainbingo_channel_id,
-            result['to_sequence'], thread_row,
-        )
-
-        if cer['new_thread_id']:
-            await ctx.channel.send(
-                candyland_format.bounty_claimed(
-                    team_role.mention, ctx.author.mention, name, text['reward'],
-                    cer['new_thread_id'],
-                ),
-                allowed_mentions=discord.AllowedMentions(users=False, roles=False),
+        if unclaimed['bounty_key'] in candyland_bounty.ROLL_ON_CLAIM_KEYS:
+            final = result['to_sequence'] == result['board_final']
+            art_a = dice_art.render(result['die_a'])
+            art_b = dice_art.render(result['die_b'])
+            keep_label = candyland_bounty.KEEP_LABEL[unclaimed['bounty_key']]
+            content = candyland_format.bounty_roll_announcement(
+                team_role.mention, ctx.author.mention, name, keep_label,
+                result['die_a'], art_a, result['die_b'], art_b, result['die'],
+                text['reward'], final=final,
             )
-        await ctx.followup.send('Your claim is in - good luck!', ephemeral=True)
+            try:
+                announcement = await ctx.channel.send(
+                    content,
+                    allowed_mentions=discord.AllowedMentions(users=False, roles=False),
+                )
+                announcement_failure = None
+            except discord.HTTPException as e:
+                announcement = None
+                announcement_failure = f'announcement: {e!r}'
+
+            await ctx.followup.send('Your claim is in - good luck!', ephemeral=True)
+
+            cer = await candyland_ceremony.run_post_roll_ceremony(
+                self.bot, database, team, team_role, self.mainbingo_channel_id,
+                result['to_sequence'], thread_row,
+            )
+            if announcement_failure:
+                cer['failures'].append(announcement_failure)
+
+            if announcement is not None and cer['new_thread_id'] and not final:
+                try:
+                    await announcement.edit(
+                        content=candyland_format.bounty_roll_announcement(
+                            team_role.mention, ctx.author.mention, name, keep_label,
+                            result['die_a'], art_a, result['die_b'], art_b, result['die'],
+                            text['reward'], new_thread_id=cer['new_thread_id'], final=final,
+                        ),
+                        allowed_mentions=discord.AllowedMentions(users=False, roles=False),
+                    )
+                except discord.HTTPException:
+                    pass
+        else:
+            cer = await candyland_ceremony.run_move_thread_ceremony(
+                self.bot, database, team, team_role, self.mainbingo_channel_id,
+                result['to_sequence'], thread_row, bounty_key=unclaimed['bounty_key'],
+            )
+            if cer['new_thread_id']:
+                await ctx.channel.send(
+                    candyland_format.bounty_claimed(
+                        team_role.mention, ctx.author.mention, name, text['reward'],
+                        cer['new_thread_id'],
+                    ),
+                    allowed_mentions=discord.AllowedMentions(users=False, roles=False),
+                )
+            await ctx.followup.send('Your claim is in - good luck!', ephemeral=True)
 
         await asyncio.to_thread(
             database.write_audit, ctx.author.id, 'bounty-claim',
             {'event_slug': event['slug'], 'team_id': team['id'],
              'bounty_key': unclaimed['bounty_key'], 'from': result['from_sequence'],
              'to': result['to_sequence'], 'moved': result['moved'],
-             'movement_id': result['movement_id'],
+             'movement_id': result['movement_id'], 'die_a': result['die_a'],
+             'die_b': result['die_b'], 'die': result['die'],
              'ceremony': cer['steps'], 'ceremony_failures': cer['failures']},
         )
 
         if cer['failures']:
             await candyland_ceremony.alert_mods(
-                self.bot, self.moderator_channel_id, team, 0,
+                self.bot, self.moderator_channel_id, team, result['die'] or 0,
                 result['from_sequence'], result['to_sequence'], cer,
             )
     # === END PLAYER COMMANDS ===

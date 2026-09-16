@@ -11,6 +11,32 @@ def header(team_label, subtext):
     return f'# Team {team_label}\n-# {subtext}'
 
 
+def _task_block(label, task_row):
+    lines = [f'# __{label}__', f"## {task_row['title']}", f"*{task_row['task']}*"]
+    if task_row.get('notes'):
+        lines += ['', f"-# *{task_row['notes']}*"]
+    return lines
+
+
+def tile_goals(major, minors):
+    """major is a task row: {title, task, notes}. minors is a non-empty list
+    of task rows - one for most tiles, two past the doomsday tile. Renders
+    the decision-39/42 Major-plus-Minor(s) block Nick specified. A single
+    Minor keeps the plain 'Minor Task' label; two or more are numbered."""
+    blocks = [_task_block('Major Task', major)]
+    label_all = len(minors) > 1
+    for i, minor in enumerate(minors, start=1):
+        label = f'Minor Task {i}' if label_all else 'Minor Task'
+        blocks.append(_task_block(label, minor))
+
+    lines = []
+    for i, block in enumerate(blocks):
+        if i:
+            lines += ['', '']
+        lines += block
+    return '\n'.join(lines)
+
+
 def roll_announcement(team_mention, team_label, author_mention, from_sequence,
                       die, dice_art, new_thread_id=None, modifier_name=None,
                       final=False, roll_emoji='🎲', second_wind=None,
@@ -91,6 +117,32 @@ def bounty_claimed(team_mention, author_mention, bounty_name, reward, new_thread
         '',
         f"Your team's next tile is ➡️ <#{new_thread_id}>",
     ])
+
+
+def bounty_roll_announcement(team_mention, author_mention, bounty_name, keep_label,
+                             die_a, art_a, die_b, art_b, chosen, reward,
+                             new_thread_id=None, final=False, roll_emoji='🎲'):
+    """Advantage/Disadvantage bounty-claim announcement: claiming rolls two dice
+    immediately and keeps the higher (Advantage) or lower (Disadvantage). Shows
+    both dice blocks labelled kept/dropped so the team can see the one that
+    didn't count, not just the one that did."""
+    lines = [
+        header(team_mention, f'{author_mention} completed the **{bounty_name}** bounty!'),
+        '',
+        f'{roll_emoji} Claiming rolled two dice, keeping the {keep_label}:',
+        f'**Roll 1: {die_a}** {"✅ kept" if die_a == chosen else "❌ dropped"}',
+        art_a,
+        f'**Roll 2: {die_b}** {"✅ kept" if die_b == chosen else "❌ dropped"}',
+        art_b,
+        '',
+        f'### {reward}',
+    ]
+    if final:
+        lines.append('-# 🏁 This is the **final tile**.')
+    elif new_thread_id is not None:
+        lines.append('')
+        lines.append(f"Your team's next tile is ➡️ <#{new_thread_id}>")
+    return '\n'.join(lines)
 
 
 def bounties_list(team_mention, bounty_rows):

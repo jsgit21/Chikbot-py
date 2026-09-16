@@ -2,7 +2,7 @@ import json
 
 import pymysql
 
-from . import candyland_board, candyland_bounty
+from . import candyland_board, candyland_bounty, candyland_roll
 from . import candyland_connection as connection
 
 
@@ -397,11 +397,12 @@ def take_bounty(team_id, bounty_key, invoked_by_user_id, expected_movement_id,
 
 
 def complete_bounty(team_id, bounty_use_id, invoked_by_user_id, expected_movement_id,
-                    testdb=None):
+                    proof_thread_id=None, testdb=None):
     # /candyland bounty-claim: apply the bounty's reward. Same lock-and-fold
-    # shape as move_team. A movement row is written only when the bounty
-    # actually moves the team (Retreat/Advance) - Advantage/Disadvantage/
-    # Double Down/Swap need no row, mirroring manual-move's moved_row guard.
+    # shape as move_team. Advantage/Disadvantage roll immediately (two dice,
+    # keep higher/lower) and always move the team - the claim is the roll.
+    # Retreat/Advance/Charge move deterministically via destination(); Double
+    # Down/Swap write no row, same as before.
     db = testdb if testdb else connection.create_connection()
     db.begin()
     try:
@@ -441,18 +442,27 @@ def complete_bounty(team_id, bounty_use_id, invoked_by_user_id, expected_movemen
             return {'ok': False, 'reason': 'conflict'}
         bounty_key = row[0]
 
-        to_sequence = candyland_bounty.destination(
-            bounty_key, from_sequence,
-            candyland_board.board_final_tile(from_sequence),
-        )
-        moved = to_sequence != from_sequence
+        total_tiles = get_max_major_tile_sequence(testdb=db)
+        board_final = candyland_board.board_final_tile(from_sequence, total_tiles)
 
-        movement_id = None
-        if moved:
+        die_a = die_b = die = None
+        if bounty_key in candyland_bounty.ROLL_ON_CLAIM_KEYS:
+            die_a, die_b, die = candyland_roll.roll_pair(bounty_key)
+            to_sequence = min(from_sequence + die, board_final)
+            moved = True
             movement_id = record_movement(
-                team_id, 'adjustment', None, from_sequence, to_sequence,
-                None, invoked_by_user_id, f'bounty-claim:{bounty_key}', testdb=db,
+                team_id, 'roll', die, from_sequence, to_sequence,
+                proof_thread_id, invoked_by_user_id, f'bounty-claim:{bounty_key}', testdb=db,
             )
+        else:
+            to_sequence = candyland_bounty.destination(bounty_key, from_sequence, board_final)
+            moved = to_sequence != from_sequence
+            movement_id = None
+            if moved:
+                movement_id = record_movement(
+                    team_id, 'adjustment', None, from_sequence, to_sequence,
+                    None, invoked_by_user_id, f'bounty-claim:{bounty_key}', testdb=db,
+                )
 
         cursor.execute(
             "update bounty_use set claimed_at = now() where id = %s",
@@ -469,6 +479,10 @@ def complete_bounty(team_id, bounty_use_id, invoked_by_user_id, expected_movemen
             'to_sequence': to_sequence,
             'moved': moved,
             'movement_id': movement_id,
+            'board_final': board_final,
+            'die_a': die_a,
+            'die_b': die_b,
+            'die': die,
         }
     except Exception:
         db.rollback()
@@ -844,13 +858,16 @@ def swap_open_thread(team_id, tile_sequence, new_thread_id, old_thread_row_id,
     # Open the next tile's thread row and close the previous one as a single
     # transaction: a failure between the two must not leave a team with two
     # state='open' rows (get_open_thread does fetchone() and would pick one
-    # arbitrarily, breaking the one-open-thread-per-team invariant).
+    # arbitrarily, breaking the one-open-thread-per-team invariant). Returns
+    # the new row's id so a fresh Minor draw can be recorded against it in
+    # team_minor_history.
     db = testdb if testdb else connection.create_connection()
     db.begin()
     try:
-        open_tile_thread(team_id, tile_sequence, new_thread_id, testdb=db)
+        new_row_id = open_tile_thread(team_id, tile_sequence, new_thread_id, testdb=db)
         close_tile_thread(old_thread_row_id, testdb=db)
         db.commit()
+        return new_row_id
     except Exception:
         db.rollback()
         raise
@@ -864,7 +881,8 @@ def move_open_thread_to_tile(team_id, tile_sequence, new_thread_id, testdb=None)
     # already exists for (team_id, tile_sequence) it is repointed at the new
     # thread and reopened rather than inserted (the unique key forbids a second
     # row). Any other open row for the team is closed first, so the one open
-    # thread per team invariant never briefly breaks.
+    # thread per team invariant never briefly breaks. Returns the row's id so a
+    # fresh Minor draw can be recorded against it in team_minor_history.
     db = testdb if testdb else connection.create_connection()
     db.begin()
     try:
@@ -883,13 +901,14 @@ def move_open_thread_to_tile(team_id, tile_sequence, new_thread_id, testdb=None)
         )
         row = cursor.fetchone()
         if row:
+            row_id = row[0]
             cursor.execute(
                 """
                 update tile_thread
                    set thread_id = %s, state = 'open', closed_at = null
                  where id = %s
                 """,
-                (new_thread_id, row[0]),
+                (new_thread_id, row_id),
             )
         else:
             cursor.execute(
@@ -899,10 +918,101 @@ def move_open_thread_to_tile(team_id, tile_sequence, new_thread_id, testdb=None)
                 """,
                 (team_id, tile_sequence, new_thread_id),
             )
+            row_id = cursor.lastrowid
         db.commit()
+        return row_id
     except Exception:
         db.rollback()
         raise
+
+
+def get_max_major_tile_sequence(testdb=None):
+    db = testdb if testdb else connection.create_connection()
+    cursor = db.cursor()
+
+    cursor.execute("select max(tile_sequence) from task where kind = 'major'")
+    total = cursor.fetchone()[0]
+    if total is None:
+        raise RuntimeError(
+            "task table has no kind='major' rows yet; event is not seeded"
+        )
+    return total
+
+
+def get_task_for_tile(tile_sequence, testdb=None):
+    db = testdb if testdb else connection.create_connection()
+    cursor = db.cursor(pymysql.cursors.DictCursor)
+
+    query = """
+        select id, kind, tile_sequence, title, task, notes
+          from task
+         where kind = 'major'
+           and tile_sequence = %s
+    """
+    cursor.execute(query, (tile_sequence,))
+    return cursor.fetchone()
+
+
+def get_task_by_id(task_id, testdb=None):
+    db = testdb if testdb else connection.create_connection()
+    cursor = db.cursor(pymysql.cursors.DictCursor)
+
+    query = """
+        select id, kind, tile_sequence, title, task, notes
+          from task
+         where id = %s
+    """
+    cursor.execute(query, (task_id,))
+    return cursor.fetchone()
+
+
+def get_minor_pool(testdb=None):
+    db = testdb if testdb else connection.create_connection()
+    cursor = db.cursor(pymysql.cursors.DictCursor)
+
+    query = """
+        select id, kind, tile_sequence, title, task, notes
+          from task
+         where kind = 'minor'
+    """
+    cursor.execute(query)
+    return cursor.fetchall()
+
+
+def get_team_minor_history(team_id, testdb=None):
+    # Every minor_task_id this team has ever drawn, whole event (decision 39's
+    # amended exclusion rule) - passed to draw_minors as excluded_ids.
+    db = testdb if testdb else connection.create_connection()
+    cursor = db.cursor()
+
+    query = "select minor_task_id from team_minor_history where team_id = %s"
+    cursor.execute(query, (team_id,))
+    return [row[0] for row in cursor.fetchall()]
+
+
+def get_minors_for_thread(tile_thread_id, testdb=None):
+    # Which Minor(s) a given tile_thread row showed - one row per Minor, so a
+    # two-Minor tile (past the doomsday tile) returns two ids. tile_thread has
+    # no minor_task_id column of its own; this is the source of truth for a
+    # Double Down redo that needs to reuse the same Minor(s) rather than draw
+    # again.
+    db = testdb if testdb else connection.create_connection()
+    cursor = db.cursor()
+
+    query = "select minor_task_id from team_minor_history where tile_thread_id = %s"
+    cursor.execute(query, (tile_thread_id,))
+    return [row[0] for row in cursor.fetchall()]
+
+
+def record_minor_history(team_id, minor_task_id, tile_thread_id, testdb=None):
+    db = testdb if testdb else connection.create_connection()
+    cursor = db.cursor()
+
+    query = """
+        insert into team_minor_history (team_id, minor_task_id, tile_thread_id)
+        values (%s, %s, %s)
+    """
+    cursor.execute(query, (team_id, minor_task_id, tile_thread_id))
 
 
 def delete_event(event_id, testdb=None):

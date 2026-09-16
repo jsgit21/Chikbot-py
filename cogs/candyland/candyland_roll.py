@@ -17,6 +17,27 @@ NO_TEAM = 'no_team'
 MULTI_TEAM = 'multi_team'
 
 
+def draw_minors(pool, excluded_ids, count):
+    """Uniform-random pick of `count` distinct tasks from `pool` (list of task
+    rows, kind='minor'), excluding any id already in `excluded_ids`. Returns a
+    list of `count` task rows, no duplicates within the draw. Raises if the
+    pool doesn't have enough unexcluded candidates - that's an operator
+    problem (more teams/rolls than Minor pool size), not something to
+    silently paper over."""
+    candidates = [task for task in pool if task['id'] not in excluded_ids]
+    if len(candidates) < count:
+        raise ValueError(
+            f'Minor pool exhausted: need {count} unexcluded task(s) for this team, '
+            f'only {len(candidates)} available'
+        )
+    return random.sample(candidates, count)
+
+
+def draw_minor(pool, excluded_ids):
+    """Uniform-random pick of a single task from `pool`. See draw_minors."""
+    return draw_minors(pool, excluded_ids, 1)[0]
+
+
 def resolve_caller_team(teams, caller_role_ids):
     """(team_row, None) on a clean match, else (None, NO_TEAM | MULTI_TEAM)."""
     matched = [t for t in teams if t['role_id'] in caller_role_ids]
@@ -59,6 +80,15 @@ def roll_move(from_sequence, board_size, modifier=None):
     else:
         die = _d()
     return die, min(from_sequence + die, board_size)
+
+
+def roll_pair(modifier):
+    """Roll two of the movement die for an Advantage/Disadvantage bounty claim.
+    Returns (die_a, die_b, chosen): chosen is the higher of the two for
+    'ADVANTAGE', the lower for 'DISADVANTAGE'."""
+    die_a, die_b = _d(), _d()
+    chosen = min(die_a, die_b) if modifier == 'DISADVANTAGE' else max(die_a, die_b)
+    return die_a, die_b, chosen
 
 
 # Distance-scaled doomsday catch-up (event-rules decision 37). `gap` is how many
