@@ -10,7 +10,7 @@ _THREAD_BODY = (
     '<#{channel}>.'
 )
 _BOUNTY_THREAD_BODY = (
-    '**[{label}] bounty**\n'
+    '**[Bounty] {label}**\n'
     'This team took the **{label}** bounty. This means that {task}\n'
     'Post your proof here, then run `/candyland bounty-claim` in <#{channel}>.\n{role}'
 )
@@ -189,7 +189,7 @@ async def open_tile_thread(bot, database, forum_channel_id, mainbingo_channel_id
     """
     forum = await resolve_channel(bot, forum_channel_id)
     if bounty_label:
-        name = f'[{bounty_label}] bounty'
+        name = f'[Bounty] {bounty_label}'
         body = _BOUNTY_THREAD_BODY.format(
             label=bounty_label, task=bounty_task,
             channel=mainbingo_channel_id, role=team_role.mention,
