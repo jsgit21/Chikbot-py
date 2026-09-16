@@ -97,6 +97,16 @@ def roll_announcement(team_mention, team_label, author_mention, from_sequence,
     return '\n'.join(lines)
 
 
+# Custom server emoji; only usable in guilds where it's uploaded.
+_VALE_YEP_EMOJI = '<:vale_yep:1532631285497860176>'
+
+
+def rolling_placeholder(team_mention):
+    """Posted immediately on `/candyland roll`, before the tile ceremony runs.
+    Edited into the full roll_announcement once the new tile thread exists."""
+    return header(team_mention, f'{_VALE_YEP_EMOJI} Moving you to the next tile...')
+
+
 def bounty_taken(team_mention, author_mention, bounty_name, task, reward):
     return '\n'.join([
         header(team_mention, f'{author_mention} has chosen to take a bounty!'),

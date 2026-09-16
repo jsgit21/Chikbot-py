@@ -185,6 +185,14 @@ def test_roll_announcement_final_tile_has_no_next_tile_line():
     assert 'next tile' not in result.lower()
 
 
+def test_rolling_placeholder():
+    result = candyland_format.rolling_placeholder('@Reds')
+    assert result == (
+        '# Team @Reds\n'
+        '-# <:vale_yep:1532631285497860176> Moving you to the next tile...'
+    )
+
+
 def test_bounty_taken_shape():
     result = candyland_format.bounty_taken(
         '@Reds', '@Nick', 'Retreat', 'your team must get 2 items.', 'move back 1 tile.',

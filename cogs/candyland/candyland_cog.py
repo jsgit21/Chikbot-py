@@ -792,14 +792,10 @@ class Candyland(commands.Cog):
         art = dice_art.render(die)
         final = to_sequence == board_size
         modifier_name = candyland_bounty.BOUNTY_NAMES[modifier] if modifier else None
+
         try:
             announcement = await ctx.channel.send(
-                candyland_format.roll_announcement(
-                    team_role.mention, team_label, ctx.author.mention, from_sequence,
-                    die, art, modifier_name=modifier_name, final=final,
-                    roll_emoji=roll_emoji, second_wind=second_wind, clamped_at=clamped_at,
-                    leader_label=leader_label, catchup_declined=catchup_declined,
-                ),
+                candyland_format.rolling_placeholder(team_role.mention),
                 allowed_mentions=discord.AllowedMentions(users=False, roles=False),
             )
             announcement_failure = None
@@ -816,20 +812,32 @@ class Candyland(commands.Cog):
         if announcement_failure:
             result['failures'].append(announcement_failure)
 
-        if announcement is not None and result['new_thread_id'] and not final:
+        full_content = candyland_format.roll_announcement(
+            team_role.mention, team_label, ctx.author.mention, from_sequence,
+            die, art, new_thread_id=(result['new_thread_id'] if not final else None),
+            modifier_name=modifier_name, final=final, roll_emoji=roll_emoji,
+            second_wind=second_wind, clamped_at=clamped_at, leader_label=leader_label,
+            catchup_declined=catchup_declined,
+        )
+        if announcement is not None:
             try:
                 await announcement.edit(
-                    content=candyland_format.roll_announcement(
-                        team_role.mention, team_label, ctx.author.mention,
-                        from_sequence, die, art, new_thread_id=result['new_thread_id'],
-                        modifier_name=modifier_name, final=final,
-                        roll_emoji=roll_emoji, second_wind=second_wind, clamped_at=clamped_at,
-                        leader_label=leader_label, catchup_declined=catchup_declined,
-                    ),
+                    content=full_content,
                     allowed_mentions=discord.AllowedMentions(users=False, roles=False),
                 )
-            except discord.HTTPException:
-                pass
+            except discord.HTTPException as e:
+                result['failures'].append(f'announcement_edit: {e!r}')
+        else:
+            # The placeholder itself never posted - this is the only chance the team
+            # sees a public result at all, so send the finished content directly.
+            try:
+                await ctx.channel.send(
+                    full_content,
+                    allowed_mentions=discord.AllowedMentions(users=False, roles=False),
+                )
+            except discord.HTTPException as e:
+                result['failures'].append(f'announcement_fallback: {e!r}')
+
         await asyncio.to_thread(
             database.write_audit, ctx.author.id,
             'catchup_roll' if extra_die else 'roll',
