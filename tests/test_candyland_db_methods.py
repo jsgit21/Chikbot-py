@@ -350,20 +350,22 @@ def test_get_all_state_one_row_per_team_in_sort_order(test_db, setup_candyland_t
 
 
 def test_board_of_boundaries():
+    total = candyland_board.BOARD1_SIZE + candyland_board.BOARD2_SIZE
     assert candyland_board.board_of(1) == 1
     assert candyland_board.board_of(candyland_board.BOARD1_SIZE) == 1
     assert candyland_board.board_of(candyland_board.BOARD1_SIZE + 1) == 2
-    assert candyland_board.board_of(candyland_board.TOTAL_TILES) == 2
+    assert candyland_board.board_of(total) == 2
 
 
 def test_board_edge_tiles():
+    total = candyland_board.BOARD1_SIZE + candyland_board.BOARD2_SIZE
     b1_last = candyland_board.BOARD1_SIZE
     b2_first = candyland_board.BOARD1_SIZE + 1
-    b2_last = candyland_board.TOTAL_TILES
+    b2_last = total
     for seq in (1, b1_last, b2_first, b2_last):
-        assert candyland_board.is_board_edge_tile(seq)
+        assert candyland_board.is_board_edge_tile(seq, total)
     for seq in (2, b1_last - 1, b2_first + 1, b2_last - 1):
-        assert not candyland_board.is_board_edge_tile(seq)
+        assert not candyland_board.is_board_edge_tile(seq, total)
 
 
 def test_take_bounty_does_not_move_team(test_db, setup_candyland_tables):

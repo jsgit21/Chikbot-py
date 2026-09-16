@@ -7,6 +7,40 @@ def test_header_prepends_team():
     assert result == '# Team @Reds\n-# has completed Tile 3'
 
 
+def test_tile_goals_full_shape_with_notes():
+    major = {'title': 'One Oathplate piece', 'task': 'Get any Oathplate piece.',
+             'notes': 'Any piece counts.'}
+    minor = {'title': 'Woodcutting', 'task': 'Complete 6 Forestry events.',
+             'notes': 'Must include at least one of each event type.'}
+
+    result = candyland_format.tile_goals(major, minor)
+
+    assert result == (
+        '# __Major Task__\n'
+        '## One Oathplate piece\n'
+        '*Get any Oathplate piece.*\n'
+        '\n'
+        '-# *Any piece counts.*\n'
+        '\n'
+        '\n'
+        '# __Minor Task__\n'
+        '## Woodcutting\n'
+        '*Complete 6 Forestry events.*\n'
+        '\n'
+        '-# *Must include at least one of each event type.*'
+    )
+
+
+def test_tile_goals_drops_notes_line_when_absent():
+    major = {'title': 'Title', 'task': 'Task', 'notes': None}
+    minor = {'title': 'Title', 'task': 'Task', 'notes': ''}
+
+    result = candyland_format.tile_goals(major, minor)
+
+    assert '-# *None*' not in result
+    assert '-#' not in result
+
+
 def test_roll_announcement_basic_shape():
     result = candyland_format.roll_announcement(
         '@Reds', 'RED', '@Nick', 3, 4, 'ART', new_thread_id=900,

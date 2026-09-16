@@ -60,20 +60,52 @@ create table candyland.team (
   unique key (event_id, role_id)
 );
 
+create table candyland.task (
+  id int unsigned primary key auto_increment,
+  kind enum('major','minor') not null,
+  tile_sequence int null,                   -- populated only for kind='major'
+  title varchar(255) not null,
+  task varchar(1000) not null,
+  notes varchar(1000) null,
+  unique key uq_task_tile_sequence (tile_sequence)
+);
+-- One row per Major or Minor, Phase F (schema landed 2026-09-15, real data a
+-- follow-up seed script once Nick's tile/Minor spreadsheet is locked).
+-- uq_task_tile_sequence is the DB-level guarantee of one tile per Major.
+
 create table candyland.tile_thread (
   id int unsigned primary key auto_increment,
   team_id int unsigned not null,
   tile_sequence int not null,
   thread_id bigint unsigned not null,       -- the Discord forum post/thread
+  minor_task_id int unsigned null,          -- which Minor this tile's thread showed
   state enum('open','closed') not null default 'open',
   opened_at timestamp default current_timestamp,
   closed_at timestamp null,
   constraint fk_thread_team foreign key (team_id)
     references team (id) on delete cascade,
+  constraint fk_tile_thread_minor foreign key (minor_task_id)
+    references task (id),
   unique key (team_id, tile_sequence)
 );
 -- At most one open thread per team is a runtime invariant enforced in code,
 -- not a DB constraint (MySQL cannot do a partial unique index).
+
+create table candyland.team_minor_history (
+  id int unsigned primary key auto_increment,
+  team_id int unsigned not null,
+  minor_task_id int unsigned not null,
+  tile_thread_id int unsigned not null,
+  assigned_at datetime not null default current_timestamp,
+  unique key uq_team_minor (team_id, minor_task_id),
+  foreign key (team_id) references team (id),
+  foreign key (minor_task_id) references task (id),
+  foreign key (tile_thread_id) references tile_thread (id)
+);
+-- Every Minor a team has ever drawn, whole event (decision 39's amended
+-- exclusion rule: never the same Minor twice, not just not-in-a-row). Doubles
+-- as the post-event reporting log. uq_team_minor is the DB-level guarantee;
+-- the Python exclusion logic in draw_minor is the primary mechanism.
 
 create table candyland.movement (
   id int unsigned primary key auto_increment,

@@ -11,6 +11,20 @@ def header(team_label, subtext):
     return f'# Team {team_label}\n-# {subtext}'
 
 
+def _task_block(label, task_row):
+    lines = [f'# __{label}__', f"## {task_row['title']}", f"*{task_row['task']}*"]
+    if task_row.get('notes'):
+        lines += ['', f"-# *{task_row['notes']}*"]
+    return lines
+
+
+def tile_goals(major, minor):
+    """major/minor are task rows: {title, task, notes}. Renders the
+    decision-39-amended two-task block Nick specified 2026-09-15."""
+    lines = _task_block('Major Task', major) + ['', ''] + _task_block('Minor Task', minor)
+    return '\n'.join(lines)
+
+
 def roll_announcement(team_mention, team_label, author_mention, from_sequence,
                       die, dice_art, new_thread_id=None, modifier_name=None,
                       final=False, roll_emoji='🎲', second_wind=None,

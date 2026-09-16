@@ -1,4 +1,31 @@
+import pytest
+
 from cogs.candyland import candyland_roll
+
+
+def test_draw_minor_never_returns_an_excluded_id():
+    pool = [{'id': 1}, {'id': 2}, {'id': 3}]
+    for _ in range(200):
+        drawn = candyland_roll.draw_minor(pool, {1, 2})
+        assert drawn['id'] == 3
+
+
+def test_draw_minor_always_returns_a_pool_member():
+    pool = [{'id': 1}, {'id': 2}, {'id': 3}]
+    for _ in range(200):
+        drawn = candyland_roll.draw_minor(pool, set())
+        assert drawn in pool
+
+
+def test_draw_minor_raises_on_a_fully_excluded_pool():
+    pool = [{'id': 1}, {'id': 2}]
+    with pytest.raises(ValueError):
+        candyland_roll.draw_minor(pool, {1, 2})
+
+
+def test_draw_minor_single_item_pool_with_no_exclusions():
+    pool = [{'id': 1}]
+    assert candyland_roll.draw_minor(pool, set())['id'] == 1
 
 
 def test_resolve_caller_team_matches_one_role():

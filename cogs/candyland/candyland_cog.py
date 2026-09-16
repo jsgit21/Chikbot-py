@@ -207,13 +207,20 @@ class Candyland(commands.Cog):
                 failed.append(f'{team["name"]}: role {team["role_id"]} not found')
                 continue
             try:
-                thread, _pin_step = await candyland_ceremony.open_tile_thread(
-                    self.bot, team['forum_channel_id'], self.mainbingo_channel_id,
-                    team_role, 1,
+                thread, _pin_step, minor_task_id, is_new_minor_draw = (
+                    await candyland_ceremony.open_tile_thread(
+                        self.bot, database, team['forum_channel_id'],
+                        self.mainbingo_channel_id, team['id'], team_role, 1,
+                    )
                 )
-                await asyncio.to_thread(
-                    database.open_tile_thread, team['id'], 1, thread.id
+                new_thread_row_id = await asyncio.to_thread(
+                    database.open_tile_thread, team['id'], 1, thread.id, minor_task_id
                 )
+                if is_new_minor_draw:
+                    await asyncio.to_thread(
+                        database.record_minor_history, team['id'], minor_task_id,
+                        new_thread_row_id,
+                    )
                 opened.append(team['name'])
             except Exception as e:
                 failed.append(f'{team["name"]}: {e!r}')
@@ -405,9 +412,10 @@ class Candyland(commands.Cog):
             )
             return
 
-        upper = (candyland_board.BOARD1_SIZE
-                 if event['board2_revealed_at'] is None
-                 else candyland_board.TOTAL_TILES)
+        if event['board2_revealed_at'] is None:
+            upper = candyland_board.BOARD1_SIZE
+        else:
+            upper = await asyncio.to_thread(candyland_board.total_tiles, database)
         if not 1 <= tile <= upper:
             await ctx.followup.send(f'Tile must be between 1 and {upper}.')
             return
@@ -643,8 +651,10 @@ class Candyland(commands.Cog):
         from_sequence = state['current_sequence']
 
         revealed = event['board2_revealed_at'] is not None
-        board_size = (candyland_board.TOTAL_TILES if revealed
-                      else candyland_board.BOARD1_SIZE)
+        if revealed:
+            board_size = await asyncio.to_thread(candyland_board.total_tiles, database)
+        else:
+            board_size = candyland_board.BOARD1_SIZE
 
         # Post-reveal catch-up (event-rules decision 37): on a team's FIRST roll
         # after the reveal, a distance-scaled "second wind" die if the ordinary
@@ -721,7 +731,7 @@ class Candyland(commands.Cog):
                 team_role.mention, team_label,
                 planner_role.mention if planner_role else '@Event Planner',
                 moderator_role.mention if moderator_role else '@Moderator',
-                claim=(from_sequence == candyland_board.TOTAL_TILES),
+                claim=(from_sequence == board_size),
             )
             await ctx.channel.send(
                 content,
@@ -876,7 +886,8 @@ class Candyland(commands.Cog):
             await ctx.followup.send(self._BOUNTY_REFUSALS[candyland_roll.OUT_OF_SYNC])
             return
 
-        if candyland_board.is_board_edge_tile(from_sequence):
+        total_tiles = await asyncio.to_thread(candyland_board.total_tiles, database)
+        if candyland_board.is_board_edge_tile(from_sequence, total_tiles):
             await ctx.followup.send(
                 "-# ⚠ Bounties can't be taken on the first or last tile of a board."
             )
@@ -1136,7 +1147,7 @@ class Candyland(commands.Cog):
 
         cer = await candyland_ceremony.run_move_thread_ceremony(
             self.bot, database, team, team_role, self.mainbingo_channel_id,
-            result['to_sequence'], thread_row,
+            result['to_sequence'], thread_row, bounty_key=unclaimed['bounty_key'],
         )
 
         if cer['new_thread_id']:
