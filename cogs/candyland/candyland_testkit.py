@@ -172,20 +172,21 @@ async def run_setup(cog, ctx, teams_raw, tester2):
         if await asyncio.to_thread(database.get_any_thread, team['id']) is not None:
             threads_built.append((team['name'], 'adopted'))
             continue
-        thread, _pin_step, minor_task_id, is_new_minor_draw = (
+        thread, _pin_step, minor_task_ids, is_new_minor_draw = (
             await candyland_ceremony.open_tile_thread(
                 cog.bot, database, team['forum_channel_id'],
                 cog.mainbingo_channel_id, team['id'], role, 1,
             )
         )
         new_thread_row_id = await asyncio.to_thread(
-            database.open_tile_thread, team['id'], 1, thread.id, minor_task_id
+            database.open_tile_thread, team['id'], 1, thread.id
         )
         if is_new_minor_draw:
-            await asyncio.to_thread(
-                database.record_minor_history, team['id'], minor_task_id,
-                new_thread_row_id,
-            )
+            for minor_task_id in minor_task_ids:
+                await asyncio.to_thread(
+                    database.record_minor_history, team['id'], minor_task_id,
+                    new_thread_row_id,
+                )
         threads_built.append((team['name'], 'created'))
 
     await asyncio.to_thread(database.set_event_status, TEST_EVENT_SLUG, 'live')

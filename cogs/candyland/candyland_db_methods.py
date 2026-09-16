@@ -764,16 +764,16 @@ def get_last_bounty_since_roll(team_id, testdb=None):
     return row[0] if row else None
 
 
-def open_tile_thread(team_id, tile_sequence, thread_id, minor_task_id=None, testdb=None):
+def open_tile_thread(team_id, tile_sequence, thread_id, testdb=None):
     db = testdb if testdb else connection.create_connection()
     cursor = db.cursor()
 
     query = """
         insert into tile_thread
-            (team_id, tile_sequence, thread_id, minor_task_id)
-        values (%s, %s, %s, %s)
+            (team_id, tile_sequence, thread_id)
+        values (%s, %s, %s)
     """
-    cursor.execute(query, (team_id, tile_sequence, thread_id, minor_task_id))
+    cursor.execute(query, (team_id, tile_sequence, thread_id))
     return cursor.lastrowid
 
 
@@ -786,7 +786,7 @@ def get_any_thread(team_id, testdb=None):
     cursor = db.cursor(pymysql.cursors.DictCursor)
 
     query = """
-        select id, team_id, tile_sequence, thread_id, minor_task_id, state,
+        select id, team_id, tile_sequence, thread_id, state,
                opened_at, closed_at
           from tile_thread
          where team_id = %s
@@ -802,7 +802,7 @@ def get_open_thread(team_id, testdb=None):
     cursor = db.cursor(pymysql.cursors.DictCursor)
 
     query = """
-        select id, team_id, tile_sequence, thread_id, minor_task_id, state,
+        select id, team_id, tile_sequence, thread_id, state,
                opened_at, closed_at
           from tile_thread
          where team_id = %s
@@ -842,7 +842,7 @@ def close_tile_thread(thread_row_id, testdb=None):
 
 
 def swap_open_thread(team_id, tile_sequence, new_thread_id, old_thread_row_id,
-                     minor_task_id=None, testdb=None):
+                     testdb=None):
     # Open the next tile's thread row and close the previous one as a single
     # transaction: a failure between the two must not leave a team with two
     # state='open' rows (get_open_thread does fetchone() and would pick one
@@ -852,9 +852,7 @@ def swap_open_thread(team_id, tile_sequence, new_thread_id, old_thread_row_id,
     db = testdb if testdb else connection.create_connection()
     db.begin()
     try:
-        new_row_id = open_tile_thread(
-            team_id, tile_sequence, new_thread_id, minor_task_id=minor_task_id, testdb=db
-        )
+        new_row_id = open_tile_thread(team_id, tile_sequence, new_thread_id, testdb=db)
         close_tile_thread(old_thread_row_id, testdb=db)
         db.commit()
         return new_row_id
@@ -863,8 +861,7 @@ def swap_open_thread(team_id, tile_sequence, new_thread_id, old_thread_row_id,
         raise
 
 
-def move_open_thread_to_tile(team_id, tile_sequence, new_thread_id,
-                             minor_task_id=None, testdb=None):
+def move_open_thread_to_tile(team_id, tile_sequence, new_thread_id, testdb=None):
     # Make tile_sequence the team's single open tile thread, pointed at
     # new_thread_id, as one transaction. Used by the bounty claims that replace
     # the tile task (Retreat/Advance move to a new tile; Swap/Double Down stay
@@ -872,11 +869,8 @@ def move_open_thread_to_tile(team_id, tile_sequence, new_thread_id,
     # already exists for (team_id, tile_sequence) it is repointed at the new
     # thread and reopened rather than inserted (the unique key forbids a second
     # row). Any other open row for the team is closed first, so the one open
-    # thread per team invariant never briefly breaks. minor_task_id is coalesced
-    # against the existing value on an update: a bounty-take thread (which has
-    # no Minor of its own) passes None here and must not clobber the Minor
-    # already recorded for that tile. Returns the row's id so a fresh Minor
-    # draw can be recorded against it in team_minor_history.
+    # thread per team invariant never briefly breaks. Returns the row's id so a
+    # fresh Minor draw can be recorded against it in team_minor_history.
     db = testdb if testdb else connection.create_connection()
     db.begin()
     try:
@@ -899,19 +893,18 @@ def move_open_thread_to_tile(team_id, tile_sequence, new_thread_id,
             cursor.execute(
                 """
                 update tile_thread
-                   set thread_id = %s, state = 'open', closed_at = null,
-                       minor_task_id = coalesce(%s, minor_task_id)
+                   set thread_id = %s, state = 'open', closed_at = null
                  where id = %s
                 """,
-                (new_thread_id, minor_task_id, row_id),
+                (new_thread_id, row_id),
             )
         else:
             cursor.execute(
                 """
-                insert into tile_thread (team_id, tile_sequence, thread_id, minor_task_id)
-                values (%s, %s, %s, %s)
+                insert into tile_thread (team_id, tile_sequence, thread_id)
+                values (%s, %s, %s)
                 """,
-                (team_id, tile_sequence, new_thread_id, minor_task_id),
+                (team_id, tile_sequence, new_thread_id),
             )
             row_id = cursor.lastrowid
         db.commit()
@@ -971,12 +964,26 @@ def get_minor_pool(testdb=None):
 
 def get_team_minor_history(team_id, testdb=None):
     # Every minor_task_id this team has ever drawn, whole event (decision 39's
-    # amended exclusion rule) - passed to draw_minor as excluded_ids.
+    # amended exclusion rule) - passed to draw_minors as excluded_ids.
     db = testdb if testdb else connection.create_connection()
     cursor = db.cursor()
 
     query = "select minor_task_id from team_minor_history where team_id = %s"
     cursor.execute(query, (team_id,))
+    return [row[0] for row in cursor.fetchall()]
+
+
+def get_minors_for_thread(tile_thread_id, testdb=None):
+    # Which Minor(s) a given tile_thread row showed - one row per Minor, so a
+    # two-Minor tile (past the doomsday tile) returns two ids. tile_thread has
+    # no minor_task_id column of its own; this is the source of truth for a
+    # Double Down redo that needs to reuse the same Minor(s) rather than draw
+    # again.
+    db = testdb if testdb else connection.create_connection()
+    cursor = db.cursor()
+
+    query = "select minor_task_id from team_minor_history where tile_thread_id = %s"
+    cursor.execute(query, (tile_thread_id,))
     return [row[0] for row in cursor.fetchall()]
 
 

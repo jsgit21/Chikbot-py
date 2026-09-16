@@ -78,18 +78,19 @@ create table candyland.tile_thread (
   team_id int unsigned not null,
   tile_sequence int not null,
   thread_id bigint unsigned not null,       -- the Discord forum post/thread
-  minor_task_id int unsigned null,          -- which Minor this tile's thread showed
   state enum('open','closed') not null default 'open',
   opened_at timestamp default current_timestamp,
   closed_at timestamp null,
   constraint fk_thread_team foreign key (team_id)
     references team (id) on delete cascade,
-  constraint fk_tile_thread_minor foreign key (minor_task_id)
-    references task (id),
   unique key (team_id, tile_sequence)
 );
 -- At most one open thread per team is a runtime invariant enforced in code,
--- not a DB constraint (MySQL cannot do a partial unique index).
+-- not a DB constraint (MySQL cannot do a partial unique index). Which
+-- Minor(s) this thread showed is not a column here - it is derived by
+-- querying team_minor_history for this row's id, since a tile can carry more
+-- than one Minor (2 past the doomsday tile, decision 43) and a fixed column
+-- count would not generalise.
 
 create table candyland.team_minor_history (
   id int unsigned primary key auto_increment,
@@ -103,9 +104,12 @@ create table candyland.team_minor_history (
   foreign key (tile_thread_id) references tile_thread (id)
 );
 -- Every Minor a team has ever drawn, whole event (decision 39's amended
--- exclusion rule: never the same Minor twice, not just not-in-a-row). Doubles
--- as the post-event reporting log. uq_team_minor is the DB-level guarantee;
--- the Python exclusion logic in draw_minor is the primary mechanism.
+-- exclusion rule: never the same Minor twice, not just not-in-a-row) - one
+-- row per Minor, so a two-Minor tile (decision 43) writes two rows sharing
+-- the same tile_thread_id. Doubles as the post-event reporting log and as the
+-- lookup for which Minor(s) a given tile_thread showed. uq_team_minor is the
+-- DB-level guarantee; the Python exclusion logic in draw_minors is the
+-- primary mechanism.
 
 create table candyland.movement (
   id int unsigned primary key auto_increment,

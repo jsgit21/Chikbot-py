@@ -16,6 +16,13 @@ def board_of(sequence):
     return 1 if sequence <= BOARD1_SIZE else 2
 
 
+def minor_count_for_tile(tile_sequence):
+    """How many Minors a tile carries: 2 past the doomsday tile (Board 2),
+    1 otherwise. By tile_sequence alone, independent of whether /candyland
+    doomsday has actually fired yet."""
+    return 2 if tile_sequence > BOARD1_SIZE else 1
+
+
 def board_final_tile(sequence, total):
     """The last tile of whichever board `sequence` is on."""
     return BOARD1_SIZE if board_of(sequence) == 1 else total

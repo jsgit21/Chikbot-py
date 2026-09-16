@@ -17,15 +17,25 @@ NO_TEAM = 'no_team'
 MULTI_TEAM = 'multi_team'
 
 
-def draw_minor(pool, excluded_ids):
-    """Uniform-random pick over `pool` (list of task rows, kind='minor'),
-    excluding any id already in `excluded_ids`. Raises if the pool is
-    exhausted for this team - that's an operator problem (more teams/rolls
-    than Minor pool size), not something to silently paper over."""
+def draw_minors(pool, excluded_ids, count):
+    """Uniform-random pick of `count` distinct tasks from `pool` (list of task
+    rows, kind='minor'), excluding any id already in `excluded_ids`. Returns a
+    list of `count` task rows, no duplicates within the draw. Raises if the
+    pool doesn't have enough unexcluded candidates - that's an operator
+    problem (more teams/rolls than Minor pool size), not something to
+    silently paper over."""
     candidates = [task for task in pool if task['id'] not in excluded_ids]
-    if not candidates:
-        raise ValueError('Minor pool exhausted: every task is excluded for this team')
-    return random.choice(candidates)
+    if len(candidates) < count:
+        raise ValueError(
+            f'Minor pool exhausted: need {count} unexcluded task(s) for this team, '
+            f'only {len(candidates)} available'
+        )
+    return random.sample(candidates, count)
+
+
+def draw_minor(pool, excluded_ids):
+    """Uniform-random pick of a single task from `pool`. See draw_minors."""
+    return draw_minors(pool, excluded_ids, 1)[0]
 
 
 def resolve_caller_team(teams, caller_role_ids):

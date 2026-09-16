@@ -18,10 +18,22 @@ def _task_block(label, task_row):
     return lines
 
 
-def tile_goals(major, minor):
-    """major/minor are task rows: {title, task, notes}. Renders the
-    decision-39-amended two-task block Nick specified 2026-09-15."""
-    lines = _task_block('Major Task', major) + ['', ''] + _task_block('Minor Task', minor)
+def tile_goals(major, minors):
+    """major is a task row: {title, task, notes}. minors is a non-empty list
+    of task rows - one for most tiles, two past the doomsday tile. Renders
+    the decision-39/42 Major-plus-Minor(s) block Nick specified. A single
+    Minor keeps the plain 'Minor Task' label; two or more are numbered."""
+    blocks = [_task_block('Major Task', major)]
+    label_all = len(minors) > 1
+    for i, minor in enumerate(minors, start=1):
+        label = f'Minor Task {i}' if label_all else 'Minor Task'
+        blocks.append(_task_block(label, minor))
+
+    lines = []
+    for i, block in enumerate(blocks):
+        if i:
+            lines += ['', '']
+        lines += block
     return '\n'.join(lines)
 
 

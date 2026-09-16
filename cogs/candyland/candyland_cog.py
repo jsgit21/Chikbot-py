@@ -207,20 +207,21 @@ class Candyland(commands.Cog):
                 failed.append(f'{team["name"]}: role {team["role_id"]} not found')
                 continue
             try:
-                thread, _pin_step, minor_task_id, is_new_minor_draw = (
+                thread, _pin_step, minor_task_ids, is_new_minor_draw = (
                     await candyland_ceremony.open_tile_thread(
                         self.bot, database, team['forum_channel_id'],
                         self.mainbingo_channel_id, team['id'], team_role, 1,
                     )
                 )
                 new_thread_row_id = await asyncio.to_thread(
-                    database.open_tile_thread, team['id'], 1, thread.id, minor_task_id
+                    database.open_tile_thread, team['id'], 1, thread.id
                 )
                 if is_new_minor_draw:
-                    await asyncio.to_thread(
-                        database.record_minor_history, team['id'], minor_task_id,
-                        new_thread_row_id,
-                    )
+                    for minor_task_id in minor_task_ids:
+                        await asyncio.to_thread(
+                            database.record_minor_history, team['id'], minor_task_id,
+                            new_thread_row_id,
+                        )
                 opened.append(team['name'])
             except Exception as e:
                 failed.append(f'{team["name"]}: {e!r}')

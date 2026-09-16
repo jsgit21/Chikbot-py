@@ -28,6 +28,33 @@ def test_draw_minor_single_item_pool_with_no_exclusions():
     assert candyland_roll.draw_minor(pool, set())['id'] == 1
 
 
+def test_draw_minors_returns_the_requested_count_no_duplicates():
+    pool = [{'id': i} for i in range(1, 6)]
+    for _ in range(200):
+        drawn = candyland_roll.draw_minors(pool, set(), 2)
+        assert len(drawn) == 2
+        assert drawn[0]['id'] != drawn[1]['id']
+        assert all(d in pool for d in drawn)
+
+
+def test_draw_minors_never_returns_an_excluded_id():
+    pool = [{'id': 1}, {'id': 2}, {'id': 3}, {'id': 4}]
+    for _ in range(200):
+        drawn = candyland_roll.draw_minors(pool, {1, 2}, 2)
+        assert {d['id'] for d in drawn} == {3, 4}
+
+
+def test_draw_minors_raises_when_not_enough_unexcluded_tasks():
+    pool = [{'id': 1}, {'id': 2}, {'id': 3}]
+    with pytest.raises(ValueError):
+        candyland_roll.draw_minors(pool, {1, 2}, 2)
+
+
+def test_draw_minor_delegates_to_draw_minors():
+    pool = [{'id': 1}]
+    assert candyland_roll.draw_minor(pool, set()) == candyland_roll.draw_minors(pool, set(), 1)[0]
+
+
 def test_resolve_caller_team_matches_one_role():
     teams = [{'role_id': 10, 'name': 'A'}, {'role_id': 20, 'name': 'B'}]
 

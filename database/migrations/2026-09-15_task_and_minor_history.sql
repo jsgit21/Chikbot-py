@@ -1,10 +1,10 @@
 -- Task schema (Majors + Minors) and the whole-event Minor exclusion history.
 --
--- Adds candyland.task (one row per Major or Minor, kind discriminator),
+-- Adds candyland.task (one row per Major or Minor, kind discriminator) and
 -- candyland.team_minor_history (every Minor a team has ever drawn - the
--- never-repeat guard and the reporting log), and tile_thread.minor_task_id
--- (which Minor a tile's thread showed - needed both to render it and as the
--- exclusion source-of-truth alongside team_minor_history).
+-- never-repeat guard, the reporting log, and the lookup for which Minor(s)
+-- a tile_thread showed - a tile can carry more than one, so this is a row
+-- per Minor rather than a column on tile_thread).
 --
 -- Run against BOTH schemas, e.g.:
 --   mysql candyland      < 2026-09-15_task_and_minor_history.sql
@@ -34,7 +34,3 @@ create table team_minor_history (
   foreign key (minor_task_id) references task(id),
   foreign key (tile_thread_id) references tile_thread(id)
 );
-
-alter table tile_thread
-  add column minor_task_id int unsigned null,
-  add constraint fk_tile_thread_minor foreign key (minor_task_id) references task(id);

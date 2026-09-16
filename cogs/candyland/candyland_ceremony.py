@@ -2,7 +2,7 @@ import asyncio
 
 import discord
 
-from cogs.candyland import candyland_bounty, candyland_format, candyland_roll
+from cogs.candyland import candyland_board, candyland_bounty, candyland_format, candyland_roll
 
 _THREAD_BODY = (
     '{role} - You have landed on **Tile {tile}**\n'
@@ -177,15 +177,16 @@ async def thread_has_proof_image(bot, thread_id, team_role_id):
 async def open_tile_thread(bot, database, forum_channel_id, mainbingo_channel_id,
                            team_id, team_role, tile_sequence, bounty_label=None,
                            bounty_task=None, is_double_down_redo=False,
-                           reused_minor_task_id=None):
+                           reused_minor_task_ids=None):
     """Opens a tile's forum thread. A bounty thread (bounty_label set) carries
     no Major/Minor. Otherwise this draws (or, on a Double Down redo, reuses)
-    the tile's Minor and sends it in a second message after the short starter.
+    the tile's Minor(s) - 2 past the doomsday tile, 1 otherwise - and sends
+    them in a second message after the short starter.
 
-    Returns (thread, pin_step, minor_task_id, is_new_minor_draw). The caller
-    inserts the tile_thread row with minor_task_id, then - only when
-    is_new_minor_draw is true - records the draw in team_minor_history against
-    that row's id.
+    Returns (thread, pin_step, minor_task_ids, is_new_minor_draw).
+    minor_task_ids is a list (empty for a bounty thread). The caller inserts
+    the tile_thread row, then - only when is_new_minor_draw is true - records
+    each id in team_minor_history against that row's id.
     """
     forum = await resolve_channel(bot, forum_channel_id)
     if bounty_label:
@@ -215,25 +216,29 @@ async def open_tile_thread(bot, database, forum_channel_id, mainbingo_channel_id
     except discord.HTTPException as e:
         pin_step = f'FAIL {e!r}'
 
-    minor_task_id = None
+    minor_task_ids = []
     is_new_minor_draw = False
     if not bounty_label:
         major = await asyncio.to_thread(database.get_task_for_tile, tile_sequence)
-        if is_double_down_redo and reused_minor_task_id is not None:
-            minor_task_id = reused_minor_task_id
-            minor = await asyncio.to_thread(database.get_task_by_id, minor_task_id)
+        if is_double_down_redo and reused_minor_task_ids:
+            minor_task_ids = reused_minor_task_ids
+            minors = [
+                await asyncio.to_thread(database.get_task_by_id, minor_id)
+                for minor_id in minor_task_ids
+            ]
         else:
+            minor_count = candyland_board.minor_count_for_tile(tile_sequence)
             pool = await asyncio.to_thread(database.get_minor_pool)
             excluded_ids = await asyncio.to_thread(database.get_team_minor_history, team_id)
-            minor = candyland_roll.draw_minor(pool, excluded_ids)
-            minor_task_id = minor['id']
+            minors = candyland_roll.draw_minors(pool, excluded_ids, minor_count)
+            minor_task_ids = [minor['id'] for minor in minors]
             is_new_minor_draw = True
         await thread.send(
-            candyland_format.tile_goals(major, minor),
+            candyland_format.tile_goals(major, minors),
             allowed_mentions=discord.AllowedMentions.none(),
         )
 
-    return thread, pin_step, minor_task_id, is_new_minor_draw
+    return thread, pin_step, minor_task_ids, is_new_minor_draw
 
 
 class ConfirmDelete(discord.ui.View):
@@ -353,7 +358,7 @@ async def run_post_roll_ceremony(bot, database, team, team_role,
     result = {'steps': {}, 'new_thread_id': None, 'failures': []}
 
     try:
-        new_thread, pin_step, minor_task_id, is_new_minor_draw = await open_tile_thread(
+        new_thread, pin_step, minor_task_ids, is_new_minor_draw = await open_tile_thread(
             bot, database, team['forum_channel_id'], mainbingo_channel_id,
             team['id'], team_role, to_sequence,
         )
@@ -370,7 +375,7 @@ async def run_post_roll_ceremony(bot, database, team, team_role,
     try:
         new_thread_row_id = await asyncio.to_thread(
             database.swap_open_thread, team['id'], to_sequence, new_thread.id,
-            old_thread_row['id'], minor_task_id,
+            old_thread_row['id'],
         )
         result['steps']['db_swap_open_thread'] = 'ok'
     except Exception as e:
@@ -382,10 +387,11 @@ async def run_post_roll_ceremony(bot, database, team, team_role,
 
     if is_new_minor_draw:
         try:
-            await asyncio.to_thread(
-                database.record_minor_history, team['id'], minor_task_id,
-                new_thread_row_id,
-            )
+            for minor_task_id in minor_task_ids:
+                await asyncio.to_thread(
+                    database.record_minor_history, team['id'], minor_task_id,
+                    new_thread_row_id,
+                )
             result['steps']['db_record_minor_history'] = 'ok'
         except Exception as e:
             result['steps']['db_record_minor_history'] = 'FAIL'
@@ -421,7 +427,7 @@ async def run_bounty_thread_ceremony(bot, database, team, team_role,
     label = candyland_bounty.BOUNTY_NAMES[bounty_key]
 
     try:
-        new_thread, pin_step, _minor_task_id, _is_new_minor_draw = await open_tile_thread(
+        new_thread, pin_step, _minor_task_ids, _is_new_minor_draw = await open_tile_thread(
             bot, database, team['forum_channel_id'], mainbingo_channel_id,
             team['id'], team_role, to_sequence, bounty_label=label,
             bounty_task=bounty_task,
@@ -472,17 +478,18 @@ async def run_move_thread_ceremony(bot, database, team, team_role,
     result = {'steps': {}, 'new_thread_id': None, 'failures': []}
 
     is_double_down_redo = bounty_key == 'DOUBLE_DOWN'
-    reused_minor_task_id = (
-        old_thread_row['minor_task_id']
-        if is_double_down_redo and old_thread_row is not None else None
-    )
+    reused_minor_task_ids = None
+    if is_double_down_redo and old_thread_row is not None:
+        reused_minor_task_ids = await asyncio.to_thread(
+            database.get_minors_for_thread, old_thread_row['id']
+        )
 
     try:
-        new_thread, pin_step, minor_task_id, is_new_minor_draw = await open_tile_thread(
+        new_thread, pin_step, minor_task_ids, is_new_minor_draw = await open_tile_thread(
             bot, database, team['forum_channel_id'], mainbingo_channel_id,
             team['id'], team_role, to_sequence,
             is_double_down_redo=is_double_down_redo,
-            reused_minor_task_id=reused_minor_task_id,
+            reused_minor_task_ids=reused_minor_task_ids,
         )
         result['new_thread_id'] = new_thread.id
         result['steps']['create_thread'] = 'ok'
@@ -497,7 +504,7 @@ async def run_move_thread_ceremony(bot, database, team, team_role,
     try:
         new_thread_row_id = await asyncio.to_thread(
             database.move_open_thread_to_tile, team['id'], to_sequence,
-            new_thread.id, minor_task_id,
+            new_thread.id,
         )
         result['steps']['db_move_thread'] = 'ok'
     except Exception as e:
@@ -507,10 +514,11 @@ async def run_move_thread_ceremony(bot, database, team, team_role,
 
     if is_new_minor_draw:
         try:
-            await asyncio.to_thread(
-                database.record_minor_history, team['id'], minor_task_id,
-                new_thread_row_id,
-            )
+            for minor_task_id in minor_task_ids:
+                await asyncio.to_thread(
+                    database.record_minor_history, team['id'], minor_task_id,
+                    new_thread_row_id,
+                )
             result['steps']['db_record_minor_history'] = 'ok'
         except Exception as e:
             result['steps']['db_record_minor_history'] = 'FAIL'
