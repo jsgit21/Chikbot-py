@@ -35,7 +35,7 @@ insert into task (kind, tile_sequence, title, task, notes) values
   ('major', 9, 'Being a hero sometimes requires stealing...', 'Fill a Stash Unit: Fountain of Heroes (Elite)', 'All items must be dropped by an npc, or crafted through raw materials you obtain. Items required: Dragon boots, Splitbark legs, Rune longsword'),
   ('major', 10, 'Things are heating up!', 'Obtain the Fire Element Staff Crown from Branda.', 'Everyone targets Branda!'),
   ('major', 11, 'OMG who turned on the air conditioning!!', 'Obtain the Ice Element Staff Crown from Eldric.', 'Everyone targets Eldric!'),
-  ('major', 12, 'Wake up! Grab a brush and put a little makeup!', 'Obtain 2 Awakener''s orbs.', 'Player''s choice.'),
+  ('major', 12, 'Wake up! Grab a brush and put on a little makeup!', 'Obtain 2 Awakener''s orbs.', 'Player''s choice.'),
   ('major', 13, 'A Song of Ice and Fire', 'Obtain the Pet OR both of the Ice and Fire Element Staff Crown pieces.', 'Split your team between Fire and Ice, or tackle one at a a time!'),
   ('major', 14, 'The Fractured Archive: Team tryouts', 'Complete each raid 1 time.', 'If a team has multiple inexperienced players, these are allowed: Entry mode Theatre of Blood, Entry mode Tombs of Amascut'),
   ('major', 15, 'Babe... I want to go ring shopping!!', 'Obtain any 2 rings from the Dagganoth Kings.', 'Duplicates are allowed on THIS tile.'),
