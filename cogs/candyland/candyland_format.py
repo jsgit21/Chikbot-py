@@ -71,6 +71,9 @@ def roll_announcement(team_mention, team_label, author_mention, from_sequence,
     ]
     if final:
         lines.append('-# 🏁 This is the **final tile**.')
+        if new_thread_id is not None:
+            lines.append('')
+            lines.append(f"Your team's final tile is ➡️ <#{new_thread_id}>")
     else:
         if extra_die:
             label = f'1d4+{second_wind}'

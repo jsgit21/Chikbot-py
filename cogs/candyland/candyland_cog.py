@@ -814,7 +814,7 @@ class Candyland(commands.Cog):
 
         full_content = candyland_format.roll_announcement(
             team_role.mention, team_label, ctx.author.mention, from_sequence,
-            die, art, new_thread_id=(result['new_thread_id'] if not final else None),
+            die, art, new_thread_id=result['new_thread_id'],
             modifier_name=modifier_name, final=final, roll_emoji=roll_emoji,
             second_wind=second_wind, clamped_at=clamped_at, leader_label=leader_label,
             catchup_declined=catchup_declined,
