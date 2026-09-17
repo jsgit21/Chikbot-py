@@ -1,6 +1,6 @@
 # One continuous track: Board 1 is tiles 1..BOARD1_SIZE. The roll guard clamps
 # here until /candyland doomsday (Phase C) opens the tiles past it.
-BOARD1_SIZE = 58
+BOARD1_SIZE = 60
 
 
 def total_tiles(database):
