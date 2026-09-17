@@ -953,7 +953,7 @@ class Candyland(commands.Cog):
         )
         name = candyland_bounty.BOUNTY_NAMES[bounty_key]
         try:
-            await ctx.channel.send(
+            announcement = await ctx.channel.send(
                 candyland_format.bounty_taken(
                     team_role.mention, ctx.author.mention, name,
                     text['task'], text['reward'],
@@ -962,6 +962,7 @@ class Candyland(commands.Cog):
             )
             announcement_failure = None
         except discord.HTTPException as e:
+            announcement = None
             announcement_failure = f'announcement: {e!r}'
 
         await ctx.followup.send('Your bounty is in - good luck!', ephemeral=True)
@@ -976,6 +977,18 @@ class Candyland(commands.Cog):
         )
         if announcement_failure:
             cer['failures'].append(announcement_failure)
+
+        if announcement is not None and cer and cer['open_thread_id']:
+            try:
+                await announcement.edit(
+                    content=candyland_format.bounty_taken(
+                        team_role.mention, ctx.author.mention, name,
+                        text['task'], text['reward'],
+                        new_thread_id=cer['open_thread_id'],
+                    ),
+                )
+            except discord.HTTPException as e:
+                cer['failures'].append(f'announcement_edit: {e!r}')
 
         if cer is None or not cer['open_thread_id']:
             await candyland_ceremony.post_bounty_note(

@@ -565,9 +565,8 @@ async def run_reveal_ceremony(bot, mainbingo_channel_id, leader_thread_id,
     try:
         channel = await resolve_channel(bot, mainbingo_channel_id)
         await channel.send(
-            'Yama has a new contract. The road did not end where you thought '
-            'it did.',
-            allowed_mentions=discord.AllowedMentions.none(),
+            candyland_format.doomsday_reveal(team_role.mention, leader_thread_id),
+            allowed_mentions=discord.AllowedMentions(roles=[team_role]),
         )
         result['steps']['mainbingo_line'] = 'ok'
     except Exception as e:

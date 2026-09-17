@@ -107,8 +107,9 @@ def rolling_placeholder(team_mention):
     return header(team_mention, f'{_VALE_YEP_EMOJI} Moving you to the next tile...')
 
 
-def bounty_taken(team_mention, author_mention, bounty_name, task, reward):
-    return '\n'.join([
+def bounty_taken(team_mention, author_mention, bounty_name, task, reward,
+                 new_thread_id=None):
+    lines = [
         header(team_mention, f'{author_mention} has chosen to take a bounty!'),
         '',
         f'### The **{bounty_name}** bounty has been redeemed.',
@@ -116,7 +117,11 @@ def bounty_taken(team_mention, author_mention, bounty_name, task, reward):
         '',
         '### If you complete this challenge your team will:',
         f'-# {reward}',
-    ])
+    ]
+    if new_thread_id is not None:
+        lines.append('')
+        lines.append(f"Your team's next tile is ➡️ <#{new_thread_id}>")
+    return '\n'.join(lines)
 
 
 def bounty_claimed(team_mention, author_mention, bounty_name, reward, new_thread_id):
@@ -153,6 +158,16 @@ def bounty_roll_announcement(team_mention, author_mention, bounty_name, keep_lab
         lines.append('')
         lines.append(f"Your team's next tile is ➡️ <#{new_thread_id}>")
     return '\n'.join(lines)
+
+
+def doomsday_reveal(team_mention, thread_id=None):
+    """Public #mainbingo doomsday callout. thread_id is the leading team's
+    currently open tile thread, when one exists to link."""
+    line = (f'Yama has taken an interest in {team_mention}. The road did not '
+            'end where they thought it did.')
+    if thread_id is not None:
+        line += f' Watch <#{thread_id}>.'
+    return line
 
 
 def bounties_list(team_mention, bounty_rows):
