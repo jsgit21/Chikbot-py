@@ -176,12 +176,13 @@ def test_roll_announcement_catchup_declined_is_ignored_when_a_second_wind_fired(
     assert 'going just as hard' not in result
 
 
-def test_roll_announcement_final_tile_has_no_next_tile_line():
+def test_roll_announcement_final_tile_links_its_own_thread():
     result = candyland_format.roll_announcement(
         '@Reds', 'RED', '@Nick', 40, 5, 'ART', new_thread_id=900, final=True,
     )
 
     assert '-# 🏁 This is the **final tile**.' in result
+    assert "Your team's final tile is ➡️ <#900>" in result
     assert 'next tile' not in result.lower()
 
 
