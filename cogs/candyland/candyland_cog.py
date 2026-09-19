@@ -480,6 +480,99 @@ class Candyland(commands.Cog):
         )
 
     @commands.check(is_moderator)
+    @candyland.command(name='undo-bounty',
+                       description="Mod tool: undo a team's unclaimed bounty pick")
+    async def undo_bounty(self, ctx,
+                          team: discord.Option(discord.Role, "The team's role")):
+        if ctx.channel.id != self.moderator_channel_id:
+            await ctx.respond(
+                f'`/candyland undo-bounty` only works in <#{self.moderator_channel_id}>.',
+            )
+            return
+
+        await ctx.defer()
+
+        event = await asyncio.to_thread(database.get_active_event)
+        if event is None:
+            await ctx.followup.send('No live event.')
+            return
+
+        team_row = await asyncio.to_thread(
+            database.get_team_by_role, event['id'], team.id
+        )
+        if team_row is None:
+            await ctx.followup.send(
+                f'{team.mention} is not a team in the live event.',
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            return
+
+        unclaimed = await asyncio.to_thread(database.get_unclaimed_bounty, team_row['id'])
+        if unclaimed is None:
+            await ctx.followup.send(
+                f'{team.mention} has no unclaimed bounty to undo.',
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            return
+
+        team_role = ctx.guild.get_role(team_row['role_id'])
+        if team_role is None:
+            await ctx.followup.send(
+                "That team's Discord role is missing; fix the team setup first.",
+            )
+            return
+
+        state = await asyncio.to_thread(database.get_team_state, team_row['id'])
+        result = await asyncio.to_thread(
+            database.undo_bounty, team_row['id'], unclaimed['id'], ctx.author.id,
+            state['last_movement_id'],
+        )
+        if not result['ok']:
+            if result['reason'] == 'already_claimed':
+                await ctx.followup.send(
+                    'That bounty has already been claimed and cannot be undone.',
+                )
+            else:
+                await ctx.followup.send('The board just changed - check it and try again.')
+            return
+
+        # --- commit point passed: the undo counts from here ---
+
+        wrong_thread_row = await asyncio.to_thread(
+            database.get_open_thread, team_row['id']
+        )
+
+        cer = await candyland_ceremony.run_undo_bounty_ceremony(
+            self.bot, database, team_row, team_role, self.mainbingo_channel_id,
+            result['from_sequence'], wrong_thread_row['thread_id'],
+        )
+
+        await asyncio.to_thread(
+            database.write_audit, ctx.author.id, 'undo-bounty',
+            {'event_slug': event['slug'], 'team_id': team_row['id'],
+             'bounty_key': result['bounty_key'], 'tile': result['from_sequence'],
+             'movement_id': result['movement_id'],
+             'ceremony': cer['steps'], 'ceremony_failures': cer['failures']},
+        )
+
+        if cer['failures']:
+            await candyland_ceremony.alert_mods(
+                self.bot, self.moderator_channel_id, team_row, 0,
+                result['from_sequence'], result['from_sequence'], cer,
+            )
+
+        name = candyland_bounty.BOUNTY_NAMES[result['bounty_key']]
+        msg = candyland_format.header(
+            team_role.mention,
+            f"undid the **{name}** bounty - back on Tile {result['from_sequence']}.",
+        )
+        if cer['failures']:
+            msg += '\n-# Ceremony fell short - see above.'
+        await ctx.followup.send(
+            msg, allowed_mentions=discord.AllowedMentions(users=False, roles=False),
+        )
+
+    @commands.check(is_moderator)
     @candyland.command(name='doomsday',
                        description='Reveal what comes after the end.')
     async def doomsday(self, ctx,
