@@ -489,6 +489,75 @@ def complete_bounty(team_id, bounty_use_id, invoked_by_user_id, expected_movemen
         raise
 
 
+def undo_bounty(team_id, bounty_use_id, invoked_by_user_id, expected_movement_id,
+                testdb=None):
+    # /candyland undo-bounty: reverses an unclaimed bounty pick. Only ever runs
+    # on a not-yet-claimed row - complete_bounty applies the reward and closes
+    # the door on this. movement is append-only (see SCHEMA.sql), so this never
+    # deletes the original bounty:{key} adjustment row; it writes a compensating
+    # adjustment (same from==to shape take_bounty used) and lets
+    # refold_team_state fold the net effect, exactly like every other mutator
+    # here. bounty_use has no such append-only rule and exists solely to gate
+    # re-picking the same key, so the mistaken row is deleted outright, freeing
+    # the team to legitimately take that bounty later if they ever choose to.
+    db = testdb if testdb else connection.create_connection()
+    db.begin()
+    try:
+        cursor = db.cursor()
+        cursor.execute(
+            """
+            select last_movement_id, current_sequence
+              from team_state
+             where team_id = %s
+             for update
+            """,
+            (team_id,),
+        )
+        locked = cursor.fetchone()
+        if locked is None:
+            db.rollback()
+            return {'ok': False, 'reason': 'conflict'}
+
+        locked_movement_id, from_sequence = locked
+        if locked_movement_id != expected_movement_id:
+            db.rollback()
+            return {'ok': False, 'reason': 'conflict'}
+
+        cursor.execute(
+            """
+            select bounty_key
+              from bounty_use
+             where id = %s
+               and team_id = %s
+               and claimed_at is null
+            """,
+            (bounty_use_id, team_id),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            db.rollback()
+            return {'ok': False, 'reason': 'already_claimed'}
+        bounty_key = row[0]
+
+        cursor.execute("delete from bounty_use where id = %s", (bounty_use_id,))
+
+        movement_id = record_movement(
+            team_id, 'adjustment', None, from_sequence, from_sequence,
+            None, invoked_by_user_id, f'bounty-undo:{bounty_key}', testdb=db,
+        )
+        refold_team_state(team_id, testdb=db)
+        db.commit()
+        return {
+            'ok': True,
+            'bounty_key': bounty_key,
+            'from_sequence': from_sequence,
+            'movement_id': movement_id,
+        }
+    except Exception:
+        db.rollback()
+        raise
+
+
 def move_team(team_id, to_sequence, invoked_by_user_id, expected_movement_id,
               testdb=None):
     # Mod reposition. One transaction mirroring take_bounty: SELECT ... FOR

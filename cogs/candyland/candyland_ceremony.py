@@ -483,6 +483,94 @@ async def run_bounty_thread_ceremony(bot, database, team, team_role,
     return result
 
 
+async def run_undo_bounty_ceremony(bot, database, team, team_role,
+                                   mainbingo_channel_id, tile_sequence,
+                                   wrong_thread_id):
+    # Reverses the Discord side of a bounty pick. The bounty ceremony overwrote
+    # the team's tile_thread row in place and only archived (never deleted, never
+    # logged elsewhere) the original tile thread, so its id is gone from the DB.
+    # Best effort: look for it archived under its original name in the team's
+    # forum; if it is not there (deleted, or archiving failed), recreate it from
+    # scratch reusing the same Minor(s) already recorded in team_minor_history
+    # against this tile_thread row (move_open_thread_to_tile repoints the row
+    # in place rather than inserting a new one, so its id and minor history
+    # survive the bounty overwrite), so the team never loses or re-rolls its
+    # original Minor draw. Either way the wrong bounty thread is deleted
+    # outright (not archived): this command only ever targets an unclaimed
+    # bounty with no proof posted yet.
+    result = {'steps': {}, 'restored_thread_id': None, 'failures': []}
+
+    forum = await resolve_channel(bot, team['forum_channel_id'])
+    target_name = f'Tile {tile_sequence}'
+    restored = None
+    async for thread in forum.archived_threads(limit=100):
+        if thread.name == target_name:
+            restored = thread
+            break
+
+    if restored is not None:
+        try:
+            await restored.edit(archived=False, locked=False, reason=_ARCHIVE_REASON)
+            await restored.send(
+                f'{team_role.mention} this bounty pick was undone by a moderator - '
+                f'you are back on **Tile {tile_sequence}**. Continue proving this '
+                f'tile here.',
+                allowed_mentions=discord.AllowedMentions(roles=[team_role]),
+            )
+            result['restored_thread_id'] = restored.id
+            result['steps']['restore_old_thread'] = 'ok'
+        except discord.HTTPException as e:
+            result['steps']['restore_old_thread'] = 'FAIL'
+            result['failures'].append(f'restore_old_thread: {e!r}')
+            restored = None
+
+    if restored is None:
+        current_row = await asyncio.to_thread(database.get_open_thread, team['id'])
+        reused_minor_task_ids = []
+        if current_row is not None:
+            reused_minor_task_ids = await asyncio.to_thread(
+                database.get_minors_for_thread, current_row['id'],
+            )
+        try:
+            new_thread, pin_step, _minor_task_ids, _is_new_minor_draw = await open_tile_thread(
+                bot, database, team['forum_channel_id'], mainbingo_channel_id,
+                team['id'], team_role, tile_sequence,
+                is_double_down_redo=bool(reused_minor_task_ids),
+                reused_minor_task_ids=reused_minor_task_ids or None,
+            )
+            restored = new_thread
+            result['restored_thread_id'] = new_thread.id
+            result['steps']['recreate_thread'] = 'ok'
+            result['steps']['pin_starter'] = pin_step
+        except Exception as e:
+            result['steps']['recreate_thread'] = 'FAIL'
+            result['failures'].append(f'recreate_thread: {e!r}')
+            return result  # nothing else is safe without a thread to point at
+
+    try:
+        await asyncio.to_thread(
+            database.move_open_thread_to_tile, team['id'], tile_sequence,
+            restored.id,
+        )
+        result['steps']['db_move_thread'] = 'ok'
+    except Exception as e:
+        result['steps']['db_move_thread'] = 'FAIL'
+        result['failures'].append(f'db_move_thread: {e!r}')
+        return result
+
+    try:
+        wrong_thread = await resolve_channel(bot, wrong_thread_id)
+        await wrong_thread.delete()
+        result['steps']['delete_wrong_thread'] = 'ok'
+    except discord.NotFound:
+        result['steps']['delete_wrong_thread'] = 'missing'
+    except discord.HTTPException as e:
+        result['steps']['delete_wrong_thread'] = 'FAIL'
+        result['failures'].append(f'delete_wrong_thread: {e!r}')
+
+    return result
+
+
 async def run_move_thread_ceremony(bot, database, team, team_role,
                                    mainbingo_channel_id, to_sequence,
                                    old_thread_row, bounty_key=None):
